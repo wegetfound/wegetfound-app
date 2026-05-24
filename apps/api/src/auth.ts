@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { db, organizationMembers } from '@wegetfound/db';
 import { and, eq } from 'drizzle-orm';
 
@@ -7,6 +7,9 @@ import { and, eq } from 'drizzle-orm';
 // The JWT carries `sub` (user_id) and a custom `active_org_id` claim. We verify
 // the signature AND do an explicit org-membership check at the app layer — RLS
 // is the DB boundary, this is defense in depth.
+//
+// Supabase now signs with ECC (P-256 / ES256) — we verify via the JWKS endpoint
+// rather than a static shared secret so key rotation is automatic.
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -14,7 +17,10 @@ declare module 'fastify' {
   }
 }
 
-const secret = () => new TextEncoder().encode(process.env.SUPABASE_JWT_SECRET ?? '');
+const supabaseUrl = process.env.SUPABASE_URL;
+if (!supabaseUrl) throw new Error('SUPABASE_URL is not set');
+
+const JWKS = createRemoteJWKSet(new URL(`${supabaseUrl}/.well-known/jwks.json`));
 
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const header = req.headers.authorization;
@@ -26,7 +32,7 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
   let userId: string;
   let orgId: string;
   try {
-    const { payload } = await jwtVerify(token, secret());
+    const { payload } = await jwtVerify(token, JWKS);
     userId = String(payload.sub);
     orgId = String(payload.active_org_id ?? '');
   } catch {
