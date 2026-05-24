@@ -21,10 +21,13 @@ export interface ExtractedNap {
 
 // A concrete, actionable problem the audit surfaced. Maps 1:1 to a Fix-queue entry.
 export interface Finding {
+  /** Stable identity for reconciling the Fix queue across audit runs. */
+  dedupKey: string;
   fixType: FixType;
   title: string;
   detail: string;
-  estimatedScoreImpact: number; // rough 1-100, used to prioritise the Fix queue
+  estimatedScoreImpact: number; // rough 1-100, drives Fix-queue priority
+  estimatedMinutes: number; // effort to resolve — quick wins surface first
 }
 
 // What fetching the homepage + robots.txt produced.

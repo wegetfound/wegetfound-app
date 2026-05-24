@@ -9,8 +9,9 @@ import {
 import { engineRegistry } from '@wegetfound/ai-adapters';
 import { computeFindabilityScore, inclusionScore, METHODOLOGY_VERSION } from '@wegetfound/scoring';
 import type { EngineScores } from '@wegetfound/scoring';
-import { auditBusiness } from '@wegetfound/audit';
-import type { AuditResult } from '@wegetfound/audit';
+import { auditBusiness, contentGapFinding } from '@wegetfound/audit';
+import type { AuditResult, Finding } from '@wegetfound/audit';
+import { syncFixesForBusiness } from './fixes-sync';
 import { ENGINE_IDS } from '@wegetfound/shared';
 import type { EngineId } from '@wegetfound/shared';
 import { eq } from 'drizzle-orm';
@@ -82,6 +83,8 @@ async function run() {
   const stats = new Map<string, Map<EngineId, EngineStat>>();
   const live = new Set<EngineId>();
   const dead = new Set<EngineId>();
+  // Per-prompt: was the business surfaced by ANY live engine? Drives content-gap fixes.
+  const promptWon = new Map<string, { businessId: string; promptText: string; won: boolean }>();
 
   const bump = (businessId: string, engineId: EngineId, mentioned: boolean) => {
     let byEngine = stats.get(businessId);
@@ -98,6 +101,9 @@ async function run() {
   for (const row of rows) {
     const geo = row.city && row.country ? `${row.city}, ${row.country}` : undefined;
     console.log(`Prompt: "${row.promptText}"  (${row.businessName})`);
+    if (!promptWon.has(row.promptId)) {
+      promptWon.set(row.promptId, { businessId: row.businessId, promptText: row.promptText, won: false });
+    }
 
     for (const engine of engines) {
       if (dead.has(engine.engineId)) continue;
@@ -107,6 +113,7 @@ async function run() {
         const mention = engine.detectBusinessMention(parsed, { name: row.businessName });
         live.add(engine.engineId);
         bump(row.businessId, engine.engineId, mention.mentioned);
+        if (mention.mentioned) promptWon.get(row.promptId)!.won = true;
 
         await db.insert(promptResults).values({
           trackedPromptId: row.promptId,
@@ -171,6 +178,13 @@ async function run() {
       signals: { ...audit.signals, breakdown, findings: audit.findings },
     });
 
+    // Fix queue: audit findings + a content gap for every prompt no engine surfaced.
+    const contentGaps: Finding[] = [...promptWon.values()]
+      .filter((p) => p.businessId === businessId && !p.won)
+      .map((p) => contentGapFinding(p.promptText));
+    const findings = [...audit.findings, ...contentGaps];
+    const sync = await syncFixesForBusiness(businessId, findings);
+
     console.log(`  ${businessName}`);
     for (const id of ENGINE_IDS) {
       if (stored[id] !== null) {
@@ -179,7 +193,12 @@ async function run() {
       }
     }
     console.log(`    signal multiplier: ×${breakdown.multiplier}`);
-    console.log(`    Overall Findability Score: ${breakdown.overallScore}/100  (${METHODOLOGY_VERSION})\n`);
+    console.log(`    Overall Findability Score: ${breakdown.overallScore}/100  (${METHODOLOGY_VERSION})`);
+    console.log(`    Fix queue: ${sync.created} new, ${sync.updated} updated, ${sync.removed} resolved`);
+    for (const f of [...findings].sort((a, b) => b.estimatedScoreImpact - a.estimatedScoreImpact)) {
+      console.log(`      • [+${f.estimatedScoreImpact} ~${f.estimatedMinutes}m] ${f.title}`);
+    }
+    console.log('');
   }
 
   console.log('=== Done. All scores stored. ===\n');
