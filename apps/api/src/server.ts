@@ -2,6 +2,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { healthRoutes } from './routes/health.js';
 import { auditRoutes } from './routes/audit.js';
+import { businessRoutes } from './routes/businesses.js';
+import { fixRoutes } from './routes/fixes.js';
+import { requireAuth } from './auth.js';
 
 export function buildServer(): FastifyInstance {
   const app = Fastify({ logger: true });
@@ -14,8 +17,13 @@ export function buildServer(): FastifyInstance {
   app.register(healthRoutes);
   app.register(auditRoutes);
 
-  // Authenticated routes are registered under a scope that applies requireAuth
-  // as an onRequest hook — added in Weeks 7–8 as the web app core comes online.
+  // Authenticated routes — requireAuth runs as an onRequest hook for everything
+  // in this scope, so every handler can rely on req.auth being set.
+  app.register(async (authed) => {
+    authed.addHook('onRequest', requireAuth);
+    await businessRoutes(authed);
+    await fixRoutes(authed);
+  });
 
   return app;
 }

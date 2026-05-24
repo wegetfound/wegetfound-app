@@ -9,4 +9,10 @@ export default defineConfig({
   platform: 'node',
   clean: true,
   noExternal: [/^@wegetfound\//],
+  // Some bundled deps (e.g. google-auth-library via the Gemini SDK) use CommonJS
+  // dynamic require(). In an ESM bundle esbuild's shim throws unless a real
+  // `require` is in scope — createRequire provides one.
+  banner: {
+    js: "import { createRequire as __cr } from 'module';\nconst require = __cr(import.meta.url);",
+  },
 });
