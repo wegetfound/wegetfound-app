@@ -8,27 +8,21 @@ import {
 } from './schema/index';
 import { engineRegistry } from '@wegetfound/ai-adapters';
 import { computeFindabilityScore, inclusionScore, METHODOLOGY_VERSION } from '@wegetfound/scoring';
-import type { EngineScores, Signals } from '@wegetfound/scoring';
+import type { EngineScores } from '@wegetfound/scoring';
+import { auditBusiness } from '@wegetfound/audit';
+import type { AuditResult } from '@wegetfound/audit';
 import { ENGINE_IDS } from '@wegetfound/shared';
 import type { EngineId } from '@wegetfound/shared';
 import { eq } from 'drizzle-orm';
 
 // Proves the full score loop end-to-end against Customer Zero (§14).
-// Queries every registered engine for each active prompt, stores results, then
-// computes + stores a Findability Score per business. Engines that error (missing
-// key, region block, etc.) are disabled for the run after their first failure, so
-// the loop degrades gracefully to whatever engines are live. One-shot CLI script.
+// For each business: (1) audits its website for the on-site signals, (2) queries
+// every registered engine for each active prompt, (3) computes + stores a real
+// Findability Score (engine inclusion × signal multiplier). Engines that error
+// (missing key, region block) are disabled after their first failure, so the loop
+// degrades gracefully to whatever engines are live. One-shot CLI script.
 
 const engines = engineRegistry.all();
-
-// Baseline signals — no crawl/schema/review data yet; expand in Week 5.
-const BASELINE_SIGNALS: Signals = {
-  schemaCompleteness: 0,
-  napConsistency: 0,
-  reviewHealth: 0,
-  crawlerAccessibility: 0,
-  hasMajorNapMismatch: false,
-};
 
 interface EngineStat {
   tested: number;
@@ -46,7 +40,11 @@ async function run() {
       promptText: trackedPrompts.promptText,
       businessId: businesses.id,
       businessName: businesses.name,
+      websiteUrl: businesses.websiteUrl,
+      phone: businesses.phone,
+      addressLine1: businesses.addressLine1,
       city: businesses.city,
+      postalCode: businesses.postalCode,
       country: businesses.country,
     })
     .from(trackedPrompts)
@@ -57,10 +55,33 @@ async function run() {
   console.log(`Found ${rows.length} active prompts across ${businessCount} businesses.`);
   console.log(`Engines registered: ${engines.map((e) => e.engineId).join(', ')}\n`);
 
-  // stats[businessId][engineId] = { tested, winning }
+  // --- Phase 1: audit each business website for the on-site signals ---
+  console.log('--- Auditing websites ---');
+  const audits = new Map<string, AuditResult>();
+  for (const businessId of new Set(rows.map((r) => r.businessId))) {
+    const row = rows.find((r) => r.businessId === businessId)!;
+    const audit = await auditBusiness({
+      name: row.businessName,
+      websiteUrl: row.websiteUrl,
+      phone: row.phone,
+      addressLine1: row.addressLine1,
+      city: row.city,
+      postalCode: row.postalCode,
+    });
+    audits.set(businessId, audit);
+    const s = audit.signals;
+    console.log(`  ${row.businessName} (${row.websiteUrl ?? 'no site'})`);
+    console.log(
+      `    crawler:${s.crawlerAccessibility.toFixed(2)} schema:${s.schemaCompleteness.toFixed(2)} nap:${s.napConsistency.toFixed(2)} reviews:${s.reviewHealth.toFixed(2)}${s.hasMajorNapMismatch ? ' ⚠ NAP mismatch' : ''}`,
+    );
+    for (const f of audit.findings) console.log(`    • ${f.title}`);
+  }
+
+  // --- Phase 2: query every live engine for each prompt ---
+  console.log('\n--- Querying AI engines ---');
   const stats = new Map<string, Map<EngineId, EngineStat>>();
   const live = new Set<EngineId>();
-  const dead = new Set<EngineId>(); // engines that errored — skipped for the rest of the run
+  const dead = new Set<EngineId>();
 
   const bump = (businessId: string, engineId: EngineId, mentioned: boolean) => {
     let byEngine = stats.get(businessId);
@@ -80,7 +101,6 @@ async function run() {
 
     for (const engine of engines) {
       if (dead.has(engine.engineId)) continue;
-
       try {
         const response = await engine.queryPrompt(row.promptText, { geography: geo });
         const parsed = engine.parseResponse(response.raw);
@@ -105,16 +125,17 @@ async function run() {
     }
   }
 
+  // --- Phase 3: compute + store a Findability Score per business ---
   console.log('\n--- Findability Scores ---');
   console.log(`Live engines: ${[...live].join(', ') || '(none)'}`);
   if (dead.size) console.log(`Offline engines: ${[...dead].join(', ')}`);
   console.log('');
 
-  for (const [businessId, byEngine] of stats) {
-    const businessName = rows.find((r) => r.businessId === businessId)?.businessName ?? businessId;
+  for (const businessId of new Set(rows.map((r) => r.businessId))) {
+    const businessName = rows.find((r) => r.businessId === businessId)!.businessName;
+    const byEngine = stats.get(businessId) ?? new Map<EngineId, EngineStat>();
+    const audit = audits.get(businessId)!;
 
-    // Build EngineScores: real inclusion score for tested engines, 0 for untested.
-    // DB stores null for untested engines so the data marks them honestly.
     const engineScores = {} as EngineScores;
     const stored: Record<EngineId, number | null> = {} as Record<EngineId, number | null>;
     let totalTested = 0;
@@ -134,7 +155,7 @@ async function run() {
       }
     }
 
-    const breakdown = computeFindabilityScore(engineScores, BASELINE_SIGNALS);
+    const breakdown = computeFindabilityScore(engineScores, audit.signals);
 
     await db.insert(findabilityScores).values({
       businessId,
@@ -147,7 +168,7 @@ async function run() {
       googleAioScore: stored.google_aio,
       promptsTested: totalTested,
       promptsWinning: totalWinning,
-      signals: { ...BASELINE_SIGNALS, breakdown, perEngineStats: Object.fromEntries(byEngine) },
+      signals: { ...audit.signals, breakdown, findings: audit.findings },
     });
 
     console.log(`  ${businessName}`);
@@ -157,6 +178,7 @@ async function run() {
         console.log(`    ${id}: ${stored[id]}/100  (${stat.winning}/${stat.tested} prompts)`);
       }
     }
+    console.log(`    signal multiplier: ×${breakdown.multiplier}`);
     console.log(`    Overall Findability Score: ${breakdown.overallScore}/100  (${METHODOLOGY_VERSION})\n`);
   }
 

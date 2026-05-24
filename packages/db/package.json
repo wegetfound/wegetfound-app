@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@wegetfound/ai-adapters": "workspace:*",
+    "@wegetfound/audit": "workspace:^",
     "@wegetfound/scoring": "workspace:*",
     "@wegetfound/shared": "workspace:*",
     "dotenv": "^17.4.2",

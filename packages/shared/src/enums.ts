@@ -26,6 +26,7 @@ export const FIX_TYPES = [
   'review_response',
   'content_gap',
   'listing_update',
+  'crawler_blocked',
 ] as const;
 export type FixType = (typeof FIX_TYPES)[number];
 
