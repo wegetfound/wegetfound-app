@@ -9,13 +9,17 @@ import {
 import { engineRegistry } from '@wegetfound/ai-adapters';
 import { computeFindabilityScore, inclusionScore, METHODOLOGY_VERSION } from '@wegetfound/scoring';
 import type { EngineScores, Signals } from '@wegetfound/scoring';
-import { eq, and } from 'drizzle-orm';
+import { ENGINE_IDS } from '@wegetfound/shared';
+import type { EngineId } from '@wegetfound/shared';
+import { eq } from 'drizzle-orm';
 
 // Proves the full score loop end-to-end against Customer Zero (§14).
-// Runs all active tracked prompts through the Claude adapter, stores results,
-// then computes + stores a Findability Score per business. One-shot CLI script.
+// Queries every registered engine for each active prompt, stores results, then
+// computes + stores a Findability Score per business. Engines that error (missing
+// key, region block, etc.) are disabled for the run after their first failure, so
+// the loop degrades gracefully to whatever engines are live. One-shot CLI script.
 
-const adapter = engineRegistry.get('claude');
+const engines = engineRegistry.all();
 
 // Baseline signals — no crawl/schema/review data yet; expand in Week 5.
 const BASELINE_SIGNALS: Signals = {
@@ -26,10 +30,16 @@ const BASELINE_SIGNALS: Signals = {
   hasMajorNapMismatch: false,
 };
 
+interface EngineStat {
+  tested: number;
+  winning: number;
+}
+
+const firstLine = (e: unknown): string => String(e).split('\n')[0]?.slice(0, 140) ?? '';
+
 async function run() {
   console.log('\n=== wegetfound.ai — Score Loop v1.0 ===\n');
 
-  // 1. Load all active prompts with their business
   const rows = await db
     .select({
       promptId: trackedPrompts.id,
@@ -43,64 +53,86 @@ async function run() {
     .innerJoin(businesses, eq(businesses.id, trackedPrompts.businessId))
     .where(eq(trackedPrompts.isActive, true));
 
-  console.log(`Found ${rows.length} active prompts across ${new Set(rows.map((r) => r.businessId)).size} businesses.\n`);
+  const businessCount = new Set(rows.map((r) => r.businessId)).size;
+  console.log(`Found ${rows.length} active prompts across ${businessCount} businesses.`);
+  console.log(`Engines registered: ${engines.map((e) => e.engineId).join(', ')}\n`);
 
-  // 2. Run each prompt through Claude
-  const results: { promptId: string; businessId: string; businessName: string; mentioned: boolean }[] = [];
+  // stats[businessId][engineId] = { tested, winning }
+  const stats = new Map<string, Map<EngineId, EngineStat>>();
+  const live = new Set<EngineId>();
+  const dead = new Set<EngineId>(); // engines that errored — skipped for the rest of the run
+
+  const bump = (businessId: string, engineId: EngineId, mentioned: boolean) => {
+    let byEngine = stats.get(businessId);
+    if (!byEngine) {
+      byEngine = new Map();
+      stats.set(businessId, byEngine);
+    }
+    const stat = byEngine.get(engineId) ?? { tested: 0, winning: 0 };
+    stat.tested += 1;
+    if (mentioned) stat.winning += 1;
+    byEngine.set(engineId, stat);
+  };
 
   for (const row of rows) {
     const geo = row.city && row.country ? `${row.city}, ${row.country}` : undefined;
-    process.stdout.write(`  [claude] "${row.promptText}" → `);
+    console.log(`Prompt: "${row.promptText}"  (${row.businessName})`);
 
-    try {
-      const engineResponse = await adapter.queryPrompt(row.promptText, { geography: geo });
-      const parsed = adapter.parseResponse(engineResponse.raw);
-      const mention = adapter.detectBusinessMention(parsed, { name: row.businessName });
+    for (const engine of engines) {
+      if (dead.has(engine.engineId)) continue;
 
-      const symbol = mention.mentioned ? '✓ mentioned' : '✗ not found';
-      console.log(`${symbol} (${row.businessName})`);
+      try {
+        const response = await engine.queryPrompt(row.promptText, { geography: geo });
+        const parsed = engine.parseResponse(response.raw);
+        const mention = engine.detectBusinessMention(parsed, { name: row.businessName });
+        live.add(engine.engineId);
+        bump(row.businessId, engine.engineId, mention.mentioned);
 
-      // 3. Persist to prompt_results
-      await db.insert(promptResults).values({
-        trackedPromptId: row.promptId,
-        engineId: 'claude',
-        businessMentioned: mention.mentioned,
-        competitorsMentioned: mention.competitors,
-        rawResponse: parsed as unknown as Record<string, unknown>,
-        cacheKey: `claude:${METHODOLOGY_VERSION}:${row.promptId}`,
-      });
+        await db.insert(promptResults).values({
+          trackedPromptId: row.promptId,
+          engineId: engine.engineId,
+          businessMentioned: mention.mentioned,
+          competitorsMentioned: mention.competitors,
+          rawResponse: parsed as unknown as Record<string, unknown>,
+          cacheKey: `${engine.engineId}:${METHODOLOGY_VERSION}:${row.promptId}`,
+        });
 
-      results.push({
-        promptId: row.promptId,
-        businessId: row.businessId,
-        businessName: row.businessName,
-        mentioned: mention.mentioned,
-      });
-    } catch (err) {
-      console.log(`ERROR — ${String(err)}`);
+        console.log(`    [${engine.engineId}] ${mention.mentioned ? '✓ mentioned' : '✗ not found'}`);
+      } catch (err) {
+        console.log(`    [${engine.engineId}] disabled for this run — ${firstLine(err)}`);
+        dead.add(engine.engineId);
+      }
     }
   }
 
-  // 4. Compute + store a score per business
-  console.log('\n--- Findability Scores ---\n');
+  console.log('\n--- Findability Scores ---');
+  console.log(`Live engines: ${[...live].join(', ') || '(none)'}`);
+  if (dead.size) console.log(`Offline engines: ${[...dead].join(', ')}`);
+  console.log('');
 
-  const businessIds = [...new Set(results.map((r) => r.businessId))];
+  for (const [businessId, byEngine] of stats) {
+    const businessName = rows.find((r) => r.businessId === businessId)?.businessName ?? businessId;
 
-  for (const businessId of businessIds) {
-    const bResults = results.filter((r) => r.businessId === businessId);
-    const businessName = bResults[0]?.businessName ?? businessId;
-    const promptsTested = bResults.length;
-    const promptsWinning = bResults.filter((r) => r.mentioned).length;
+    // Build EngineScores: real inclusion score for tested engines, 0 for untested.
+    // DB stores null for untested engines so the data marks them honestly.
+    const engineScores = {} as EngineScores;
+    const stored: Record<EngineId, number | null> = {} as Record<EngineId, number | null>;
+    let totalTested = 0;
+    let totalWinning = 0;
 
-    const claudeScore = inclusionScore(promptsTested, promptsWinning);
-
-    const engineScores: EngineScores = {
-      chatgpt: 0,
-      perplexity: 0,
-      claude: claudeScore,
-      gemini: 0,
-      google_aio: 0,
-    };
+    for (const id of ENGINE_IDS) {
+      const stat = byEngine.get(id);
+      if (stat && stat.tested > 0) {
+        const sc = inclusionScore(stat.tested, stat.winning);
+        engineScores[id] = sc;
+        stored[id] = sc;
+        totalTested += stat.tested;
+        totalWinning += stat.winning;
+      } else {
+        engineScores[id] = 0;
+        stored[id] = null;
+      }
+    }
 
     const breakdown = computeFindabilityScore(engineScores, BASELINE_SIGNALS);
 
@@ -108,20 +140,24 @@ async function run() {
       businessId,
       methodologyVersion: METHODOLOGY_VERSION,
       overallScore: breakdown.overallScore,
-      chatgptScore: breakdown.perEngine.chatgpt,
-      perplexityScore: breakdown.perEngine.perplexity,
-      claudeScore: breakdown.perEngine.claude,
-      geminiScore: breakdown.perEngine.gemini,
-      googleAioScore: breakdown.perEngine.google_aio,
-      promptsTested,
-      promptsWinning,
-      signals: { ...BASELINE_SIGNALS, breakdown },
+      chatgptScore: stored.chatgpt,
+      perplexityScore: stored.perplexity,
+      claudeScore: stored.claude,
+      geminiScore: stored.gemini,
+      googleAioScore: stored.google_aio,
+      promptsTested: totalTested,
+      promptsWinning: totalWinning,
+      signals: { ...BASELINE_SIGNALS, breakdown, perEngineStats: Object.fromEntries(byEngine) },
     });
 
     console.log(`  ${businessName}`);
-    console.log(`    Claude: ${claudeScore}/100  (${promptsWinning}/${promptsTested} prompts)`);
-    console.log(`    Overall Findability Score: ${breakdown.overallScore}/100`);
-    console.log(`    Methodology: ${METHODOLOGY_VERSION}\n`);
+    for (const id of ENGINE_IDS) {
+      if (stored[id] !== null) {
+        const stat = byEngine.get(id)!;
+        console.log(`    ${id}: ${stored[id]}/100  (${stat.winning}/${stat.tested} prompts)`);
+      }
+    }
+    console.log(`    Overall Findability Score: ${breakdown.overallScore}/100  (${METHODOLOGY_VERSION})\n`);
   }
 
   console.log('=== Done. All scores stored. ===\n');
