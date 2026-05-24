@@ -1,0 +1,80 @@
+{
+  "onboarding": {
+    "welcome.title": "Let's find out if AI sees your business.",
+    "welcome.subtitle": "We check ChatGPT, Perplexity, Claude, Gemini, and Google AI Overviews — then show you exactly what to fix.",
+    "welcome.cta": "Start free audit",
+    "businessName.label": "What's your business name?",
+    "businessName.placeholder": "Start typing and pick yours from the list",
+    "running.title": "Asking ChatGPT, Perplexity, Claude, Gemini, and Google AI about your business...",
+    "running.subtitle": "This takes about a minute. Hang tight.",
+    "confirm.title": "Confirm your business info",
+    "connect.title": "Connect your Google Business Profile",
+    "connect.skip": "I'll do this later"
+  },
+  "score": {
+    "label": "Your Findability Score",
+    "explainer": "How visible your business is to ChatGPT, Perplexity, Claude, Gemini, and Google AI.",
+    "perEngine.title": "How each AI sees you",
+    "history.weekly": "This week",
+    "history.monthly": "This month",
+    "history.allTime": "All time",
+    "dropExplainer": "Your score went down because {reason}. Here's how to bring it back up."
+  },
+  "fix": {
+    "today.title": "Today's fix",
+    "today.empty": "You're all caught up. Nice work — check back tomorrow.",
+    "impact": "Expected to lift your score by about {points} points",
+    "minutes": "About {minutes} minutes",
+    "cta.do": "Do this now",
+    "cta.skip": "Skip for now",
+    "done.title": "Done. Your score is updating.",
+    "done.streak": "{count} fixes done this week."
+  },
+  "promptTest": {
+    "title": "Ask AI a question your customers would ask",
+    "placeholder": "e.g. best yoga studio near me",
+    "cta": "Test it",
+    "youAppear": "You showed up in {engine}.",
+    "youDont": "You didn't show up in {engine}.",
+    "whoWins": "Who got named instead",
+    "whyTheyWin": "Why they win",
+    "track.cta": "Track this question"
+  },
+  "nap": {
+    "title": "Your business info across the web",
+    "subtitle": "We check that your name, address, and phone number match everywhere AI looks.",
+    "status.match": "Looks good",
+    "status.minor": "Small mismatch",
+    "status.major": "Needs fixing",
+    "status.missing": "Not listed yet",
+    "fix.cta": "Fix this",
+    "pushAll.cta": "Update everywhere at once"
+  },
+  "competitors": {
+    "title": "The businesses getting named instead of you",
+    "theirScore": "Their Findability Score",
+    "stealPlaybook": "Steal their playbook",
+    "share.cta": "Share this comparison"
+  },
+  "reviews": {
+    "title": "What your reviews are missing",
+    "gap": "Customers don't mention these things you do well:",
+    "script.cta": "Get a review request to send",
+    "send.email": "Send by email",
+    "send.sms": "Send by text",
+    "send.link": "Copy a shareable link"
+  },
+  "billing": {
+    "upgrade.trackPrompt": "To keep tracking this question, upgrade to Starter.",
+    "upgrade.competitors": "See who's winning and why — upgrade to Starter.",
+    "upgrade.schema": "Turn on automatic fixes for your website — upgrade to Starter."
+  },
+  "common": {
+    "engines.chatgpt": "ChatGPT",
+    "engines.perplexity": "Perplexity",
+    "engines.claude": "Claude",
+    "engines.gemini": "Gemini",
+    "engines.googleAio": "Google AI Overviews",
+    "coach": "your visibility coach"
+  }
+}

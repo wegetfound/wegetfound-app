@@ -1,0 +1,28 @@
+{
+  "name": "wegetfound",
+  "version": "0.1.0",
+  "private": true,
+  "description": "wegetfound.ai — personal AI visibility coach for small businesses",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @wegetfound/db generate",
+    "db:migrate": "pnpm --filter @wegetfound/db migrate",
+    "db:seed": "pnpm --filter @wegetfound/db seed"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

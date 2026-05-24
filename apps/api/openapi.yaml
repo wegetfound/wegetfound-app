@@ -1,0 +1,236 @@
+openapi: 3.1.0
+info:
+  title: wegetfound.ai API
+  version: 0.1.0
+  description: >
+    Source-of-truth API contract (CLAUDE.md §9). The typed client in
+    packages/api-client is generated from this file. Keep this in sync with routes.
+servers:
+  - url: http://localhost:3001
+    description: Local dev
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Liveness + active scoring methodology version
+      security: []
+      responses:
+        '200': { description: OK }
+
+  /audit/free:
+    post:
+      summary: Run a free public audit (anonymous, top of funnel §10.1)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                businessName: { type: string }
+                websiteUrl: { type: string, format: uri }
+      responses:
+        '200': { description: Audit queued }
+        '400': { description: Missing business name and website }
+  /audit/free/{id}:
+    get:
+      summary: Retrieve a free audit result
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Audit result }
+        '404': { description: Not found }
+  /leads:
+    post:
+      summary: Capture email after a free audit
+      security: []
+      responses:
+        '201': { description: Lead captured }
+
+  /me:
+    get:
+      summary: Current user + active organization
+      responses:
+        '200': { description: OK }
+        '401': { description: Unauthorized }
+    patch:
+      summary: Update user profile
+      responses:
+        '200': { description: Updated }
+
+  /organizations:
+    get: { summary: List the user's organizations, responses: { '200': { description: OK } } }
+    post: { summary: Create an organization, responses: { '201': { description: Created } } }
+  /organizations/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get: { summary: Get organization, responses: { '200': { description: OK } } }
+    patch: { summary: Update organization, responses: { '200': { description: Updated } } }
+
+  /businesses:
+    get: { summary: List businesses in the active org, responses: { '200': { description: OK } } }
+    post: { summary: Create a business, responses: { '201': { description: Created } } }
+  /businesses/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get: { summary: Get a business, responses: { '200': { description: OK } } }
+    patch: { summary: Update a business, responses: { '200': { description: Updated } } }
+    delete: { summary: Delete a business, responses: { '204': { description: Deleted } } }
+
+  /businesses/{id}/audit:
+    post:
+      summary: Trigger a fresh audit (queued, async §6.6)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Audit queued }
+  /businesses/{id}/score:
+    get:
+      summary: Latest Findability Score
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Latest score
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScoreBreakdown' }
+  /businesses/{id}/score/history:
+    get:
+      summary: Score history
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Score history }
+
+  /businesses/{id}/fixes:
+    get:
+      summary: The Daily Fix queue
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Fix queue }
+  /fixes/{id}/complete:
+    post:
+      summary: Mark a fix complete
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Completed }
+  /fixes/{id}/skip:
+    post:
+      summary: Skip a fix (tracked, not discarded)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Skipped }
+
+  /businesses/{id}/prompts:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get: { summary: Tracked prompts, responses: { '200': { description: OK } } }
+    post: { summary: Add a tracked prompt, responses: { '201': { description: Created } } }
+  /businesses/{id}/prompts/test:
+    post:
+      summary: Test a prompt live across all engines (no save)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Live result }
+  /prompts/{id}:
+    delete:
+      summary: Remove a tracked prompt
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Removed }
+
+  /businesses/{id}/listings:
+    get:
+      summary: Directory listings (NAP Fix-It §3.4)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+  /businesses/{id}/listings/sync:
+    post:
+      summary: Push the master record to all directories
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Sync queued }
+
+  /businesses/{id}/schemas:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    get: { summary: Schema records, responses: { '200': { description: OK } } }
+    post: { summary: Create/update schema, responses: { '200': { description: OK } } }
+  /businesses/{id}/schemas/inject:
+    post:
+      summary: Inject schema to the user's site
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: Injection queued }
+
+  /businesses/{id}/reviews:
+    get:
+      summary: Review analysis (Review Coach §3.6)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+  /businesses/{id}/reviews/script:
+    post:
+      summary: Generate a review request script
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Script generated }
+
+  /businesses/{id}/competitors:
+    get:
+      summary: Competitor analysis (Competitor Ghost §3.7)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: OK }
+
+  /webhooks/stripe:
+    post:
+      summary: Stripe webhook handler
+      security: []
+      responses:
+        '200': { description: Handled }
+  /webhooks/supabase-auth:
+    post:
+      summary: Supabase Auth webhook
+      security: []
+      responses:
+        '200': { description: Handled }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ScoreBreakdown:
+      type: object
+      properties:
+        methodologyVersion: { type: string, example: v1.0 }
+        overallScore: { type: integer, minimum: 0, maximum: 100 }
+        weightedBase: { type: number }
+        multiplier: { type: number }
+        perEngine:
+          type: object
+          properties:
+            chatgpt: { type: integer }
+            perplexity: { type: integer }
+            claude: { type: integer }
+            gemini: { type: integer }
+            google_aio: { type: integer }
