@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { computePriority, diffFixes } from '@wegetfound/audit';
 import type { Finding, ExistingFixRef } from '@wegetfound/audit';
 import { db } from './client';
@@ -22,17 +22,22 @@ export async function syncFixesForBusiness(
   businessId: string,
   findings: Finding[],
 ): Promise<SyncResult> {
-  const pending = await db
-    .select({ id: fixes.id, fixType: fixes.fixType, actionPayload: fixes.actionPayload })
+  // All current fixes for the business — we plan over pending ones, but also need
+  // the dedupKeys the user already actioned so we don't resurrect resolved fixes.
+  const all = await db
+    .select({ id: fixes.id, fixType: fixes.fixType, status: fixes.status, actionPayload: fixes.actionPayload })
     .from(fixes)
-    .where(and(eq(fixes.businessId, businessId), eq(fixes.status, 'pending')));
+    .where(eq(fixes.businessId, businessId));
 
-  const existing: ExistingFixRef[] = pending.map((p) => ({
-    id: p.id,
-    dedupKey: dedupKeyOf(p.actionPayload, p.fixType),
-  }));
+  const existing: ExistingFixRef[] = [];
+  const resolvedKeys = new Set<string>();
+  for (const f of all) {
+    const key = dedupKeyOf(f.actionPayload, f.fixType);
+    if (f.status === 'pending') existing.push({ id: f.id, dedupKey: key });
+    else resolvedKeys.add(key); // completed / skipped / dismissed
+  }
 
-  const plan = diffFixes(existing, findings);
+  const plan = diffFixes(existing, findings, resolvedKeys);
 
   for (const finding of plan.create) {
     await db.insert(fixes).values({

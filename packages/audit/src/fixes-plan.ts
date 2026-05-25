@@ -39,16 +39,22 @@ export interface FixPlan {
 //  - finding with no matching pending fix  → create
 //  - finding with a matching pending fix   → update (impact/copy may have changed)
 //  - pending fix no longer in findings     → remove (the problem was resolved)
-// Callers pass ONLY user-untouched (pending) fixes as `existing`; completed/skipped/
-// dismissed fixes are never planned over, preserving user intent and learning.
-export function diffFixes(existing: ExistingFixRef[], findings: Finding[]): FixPlan {
+// `resolvedKeys` are dedupKeys the user already actioned (completed/skipped/
+// dismissed) — findings matching them are NOT recreated, so a re-audit never nags
+// about work the user already dealt with. Pass ONLY pending fixes as `existing`.
+export function diffFixes(
+  existing: ExistingFixRef[],
+  findings: Finding[],
+  resolvedKeys: ReadonlySet<string> = new Set(),
+): FixPlan {
   const existingByKey = new Map(existing.map((e) => [e.dedupKey, e]));
-  const currentKeys = new Set(findings.map((f) => f.dedupKey));
+  const active = findings.filter((f) => !resolvedKeys.has(f.dedupKey));
+  const currentKeys = new Set(active.map((f) => f.dedupKey));
 
   const create: Finding[] = [];
   const update: { id: string; finding: Finding }[] = [];
 
-  for (const finding of findings) {
+  for (const finding of active) {
     const match = existingByKey.get(finding.dedupKey);
     if (match) update.push({ id: match.id, finding });
     else create.push(finding);

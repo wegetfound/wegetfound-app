@@ -70,4 +70,11 @@ describe('diffFixes', () => {
     expect(plan.create.map((c) => c.dedupKey)).toEqual(['new']);
     expect(plan.removeIds).toEqual(['stale']);
   });
+
+  it('does not recreate a finding the user already resolved (completed/skipped)', () => {
+    const resolved = new Set(['done-already']);
+    const plan = diffFixes([], [finding({ dedupKey: 'done-already' }), finding({ dedupKey: 'fresh' })], resolved);
+    expect(plan.create.map((c) => c.dedupKey)).toEqual(['fresh']);
+    expect(plan.update).toHaveLength(0);
+  });
 });

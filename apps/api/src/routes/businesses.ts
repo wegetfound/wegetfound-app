@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
-import { db, businesses, findabilityScores, fixes } from '@wegetfound/db';
+import { db, businesses, findabilityScores, fixes, scoreBusiness } from '@wegetfound/db';
 
 // Authenticated, org-scoped read endpoints (§9.4). Every query filters by the
 // active org from the JWT — RLS is the DB boundary, this is defense in depth.
@@ -83,5 +83,23 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
       .where(and(eq(fixes.businessId, req.params.id), eq(fixes.status, 'pending')))
       .orderBy(desc(fixes.priority));
     return { fixes: queue };
+  });
+
+  // POST /businesses/:id/audit — run a fresh audit + re-score now (§6.6).
+  // Synchronous for v1 (single business, few prompts). When audits get heavier this
+  // moves behind a BullMQ queue and returns 202 — the route contract stays the same.
+  app.post<{ Params: IdParams }>('/businesses/:id/audit', async (req, reply) => {
+    const { orgId } = req.auth!;
+    if (!(await findOwnedBusiness(orgId, req.params.id))) return reply.code(404).send({ error: 'Not found' });
+
+    const result = await scoreBusiness(req.params.id, { onLog: (m) => req.log.info(m) });
+    return {
+      overallScore: result.breakdown.overallScore,
+      multiplier: result.breakdown.multiplier,
+      promptsTested: result.promptsTested,
+      promptsWinning: result.promptsWinning,
+      liveEngines: result.liveEngines,
+      fixQueue: result.fixSync,
+    };
   });
 }
