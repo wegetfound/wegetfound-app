@@ -4,10 +4,14 @@ import { healthRoutes } from './routes/health.js';
 import { auditRoutes } from './routes/audit.js';
 import { businessRoutes } from './routes/businesses.js';
 import { fixRoutes } from './routes/fixes.js';
+import { meRoutes } from './routes/me.js';
+import { promptRoutes } from './routes/prompts.js';
 import { requireAuth } from './auth.js';
 
 export function buildServer(): FastifyInstance {
-  const app = Fastify({ logger: true });
+  // connectionTimeout raised to 5 min so the audit route (sequential AI engine
+  // calls per prompt) has enough time to finish and send the score back to the browser.
+  const app = Fastify({ logger: true, connectionTimeout: 300_000 });
 
   app.register(cors, {
     origin: [process.env.WEB_URL ?? '', process.env.MARKETING_URL ?? ''].filter(Boolean),
@@ -23,6 +27,8 @@ export function buildServer(): FastifyInstance {
     authed.addHook('onRequest', requireAuth);
     await businessRoutes(authed);
     await fixRoutes(authed);
+    await meRoutes(authed);
+    await promptRoutes(authed);
   });
 
   return app;

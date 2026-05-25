@@ -90,6 +90,99 @@ h1, h2, h3 { margin: 0 0 0.4rem; }
 .fix-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
 .spacer { flex: 1; }
 
+/* Onboarding */
+.onboarding-card { width: 480px; max-width: 100%; }
+.step-label { font-size: 0.8rem; margin-bottom: 0.5rem; }
+.onboarding-actions { display: flex; gap: 0.75rem; align-items: center; margin-top: 1.25rem; }
+
+/* Per-engine breakdown */
+.engine-breakdown { display: flex; flex-direction: column; gap: 0.55rem; margin: 0 0 1.5rem; }
+.engine-row { display: flex; align-items: center; gap: 0.75rem; font-size: 0.88rem; }
+.engine-name { min-width: 148px; flex: none; }
+.engine-bar {
+  flex: 1; height: 8px; background: var(--border); border-radius: 999px; overflow: hidden;
+}
+.engine-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+.engine-val { min-width: 28px; text-align: right; font-weight: 600; font-size: 0.85rem; }
+
+/* Score history chart */
+.history-card { margin: 0 0 1.75rem; }
+.history-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.75rem; }
+.history-delta { font-size: 0.85rem; font-weight: 600; }
+.history-svg { display: block; width: 100%; height: 80px; }
+
+/* Org chip in topbar */
+.org-chip {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Prompt tester panel */
+.prompt-tester { margin: 1.75rem 0 0; }
+.prompt-tester h3 { margin-bottom: 0.35rem; }
+.prompt-tester > .muted { margin-bottom: 1rem; font-size: 0.9rem; }
+
+.prompt-input-row { display: flex; gap: 0.6rem; align-items: stretch; }
+.prompt-input {
+  flex: 1; padding: 0.6rem 0.75rem; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 0.95rem; background: #fff;
+}
+.prompt-input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent); border-color: var(--accent); }
+.prompt-input:disabled { opacity: 0.6; }
+
+.prompt-results { margin-top: 1.25rem; }
+.prompt-results-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.75rem;
+}
+.tested-prompt-label { font-size: 0.85rem; margin: 0; }
+
+.engine-results-list { display: flex; flex-direction: column; gap: 0; }
+
+.engine-result {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.engine-result:last-child { border-bottom: none; }
+.engine-result-head { display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.3rem; }
+.engine-result-name { font-size: 0.9rem; font-weight: 600; min-width: 160px; }
+
+.engine-badge {
+  font-size: 0.75rem; font-weight: 600; padding: 0.18rem 0.55rem;
+  border-radius: 999px; flex: none;
+}
+.engine-badge.is-mentioned { background: #e7f6ee; color: #1f9d55; }
+.engine-badge.is-absent    { background: #fef3c7; color: #d97706; }
+.engine-badge.is-unavailable { background: #f1f3f5; color: #6b7280; }
+
+.answer-excerpt {
+  font-size: 0.82rem; margin: 0.15rem 0 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+.citation-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.35rem; }
+.citation-link {
+  font-size: 0.78rem; text-decoration: underline; word-break: break-all;
+  max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Tracked prompts sub-section */
+.tracked-list { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.1rem; }
+.tracked-list h4 { margin: 0 0 0.6rem; font-size: 0.92rem; }
+.tracked-items { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+
+.tracked-item {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.6rem; padding: 0.5rem 0.7rem;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+}
+.tracked-text { font-size: 0.88rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Free audit page */
 .audit-card { width: 480px; max-width: 100%; }
 .audit-result { margin-top: 0.5rem; }

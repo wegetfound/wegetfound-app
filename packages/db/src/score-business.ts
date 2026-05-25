@@ -10,6 +10,41 @@ import { db } from './client';
 import { businesses, trackedPrompts, promptResults, findabilityScores } from './schema/index';
 import { syncFixesForBusiness } from './fixes-sync';
 
+/**
+ * Generate 1-3 natural-language prompts from business data.
+ * Used to auto-seed tracked prompts the first time a business is audited so the
+ * Findability Score reflects real AI results rather than 0 from "no data".
+ */
+export function buildDefaultPrompts(params: {
+  name: string;
+  category?: string | null;
+  city?: string | null;
+  country?: string | null;
+}): string[] {
+  const { name, category, city, country } = params;
+  const location = [city, country].filter(Boolean).join(', ');
+  const prompts: string[] = [];
+
+  if (category) {
+    // Trim compound categories: "Land leasing & Chanote title consulting" → "land leasing"
+    const shortCat = category.split(/[,&]/)[0]?.trim().toLowerCase() ?? category.toLowerCase();
+    prompts.push(location ? `Best ${shortCat} in ${location}` : `Best ${shortCat}`);
+  } else if (location) {
+    prompts.push(`${name} in ${location}`);
+  }
+
+  // Brand + city (returning-customer / word-of-mouth search)
+  if (city) {
+    prompts.push(`${name} ${city}`);
+  }
+
+  // Universal brand-review query
+  prompts.push(`${name} reviews`);
+
+  // Deduplicate and limit to 3
+  return [...new Set(prompts.filter(Boolean))].slice(0, 3);
+}
+
 // The audit job for ONE business (§6.6): audit the site for on-site signals, query
 // every live engine for each active prompt, compute + store the Findability Score,
 // then reconcile the fix queue. Pure orchestration over the other packages so both
@@ -47,10 +82,24 @@ export async function scoreBusiness(
   const [biz] = await db.select().from(businesses).where(eq(businesses.id, businessId)).limit(1);
   if (!biz) throw new Error(`Business not found: ${businessId}`);
 
-  const prompts = await db
+  const rawPrompts = await db
     .select({ id: trackedPrompts.id, promptText: trackedPrompts.promptText })
     .from(trackedPrompts)
     .where(and(eq(trackedPrompts.businessId, businessId), eq(trackedPrompts.isActive, true)));
+
+  // Auto-seed default prompts if none exist so the first audit is never a dead run.
+  // This self-heals any business created before this logic existed.
+  let prompts = rawPrompts;
+  if (prompts.length === 0) {
+    const defaultTexts = buildDefaultPrompts(biz);
+    if (defaultTexts.length > 0) {
+      prompts = await db
+        .insert(trackedPrompts)
+        .values(defaultTexts.map((promptText) => ({ businessId, promptText })))
+        .returning({ id: trackedPrompts.id, promptText: trackedPrompts.promptText });
+      log(`  auto-seeded ${prompts.length} default prompts for "${biz.name}"`);
+    }
+  }
 
   // 1. On-site signals.
   const audit = await auditBusiness({

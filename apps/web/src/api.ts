@@ -51,7 +51,78 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface MeResponse {
+  user: { id: string; email: string; fullName: string };
+  organization: { id: string; name: string; slug: string; plan: string };
+}
+
+export interface EngineTestResult {
+  engineId: string;
+  engineName: string;
+  status: 'mentioned' | 'absent' | 'unavailable';
+  answerExcerpt: string | null;
+  competitors: { name: string; context: string }[];
+  citations: { url: string; title?: string }[];
+}
+
+export interface TrackedPrompt {
+  id: string;
+  promptText: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
 export const api = {
+  getMe: () => getJson<MeResponse>('/me'),
+
+  testPrompt: (businessId: string, prompt: string): Promise<{ prompt: string; results: EngineTestResult[] }> =>
+    authedFetch(`/businesses/${businessId}/prompts/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`testPrompt → ${res.status}`);
+      return res.json() as Promise<{ prompt: string; results: EngineTestResult[] }>;
+    }),
+
+  addTrackedPrompt: (businessId: string, prompt: string): Promise<TrackedPrompt> =>
+    authedFetch(`/businesses/${businessId}/prompts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`addTrackedPrompt → ${res.status}`);
+      return (await res.json() as { prompt: TrackedPrompt }).prompt;
+    }),
+
+  listTrackedPrompts: (businessId: string): Promise<TrackedPrompt[]> =>
+    getJson<{ prompts: TrackedPrompt[] }>(`/businesses/${businessId}/prompts`).then((r) => r.prompts),
+
+  deleteTrackedPrompt: (promptId: string): Promise<void> =>
+    authedFetch(`/prompts/${promptId}`, { method: 'DELETE' }).then((res) => {
+      if (!res.ok) throw new Error(`deleteTrackedPrompt → ${res.status}`);
+    }),
+
+  createBusiness: (input: {
+    name: string;
+    websiteUrl?: string;
+    vertical?: string;
+    category?: string;
+    city?: string;
+    country?: string;
+  }): Promise<Business> =>
+    authedFetch('/businesses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`createBusiness → ${res.status}`);
+      return (await res.json() as { business: Business }).business;
+    }),
+
+  getScoreHistory: (businessId: string): Promise<Score[]> =>
+    getJson<{ history: Score[] }>(`/businesses/${businessId}/score/history`).then((r) => r.history),
+
   listBusinesses: () => getJson<{ businesses: Business[] }>('/businesses').then((r) => r.businesses),
 
   // Score may not exist yet (404) — return null rather than throw.

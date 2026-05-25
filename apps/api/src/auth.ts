@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { db, organizationMembers } from '@wegetfound/db';
+import { randomBytes } from 'node:crypto';
+import { db, organizationMembers, users, organizations } from '@wegetfound/db';
 import { and, asc, eq } from 'drizzle-orm';
 
 // Auth contract (§9.3): Supabase JWT in Authorization: Bearer <token>.
@@ -34,9 +35,11 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
   const token = header.slice('Bearer '.length);
 
   let userId: string;
+  let jwtPayload: Record<string, unknown>;
   try {
     const { payload } = await jwtVerify(token, JWKS);
     userId = String(payload.sub ?? '');
+    jwtPayload = payload as Record<string, unknown>;
   } catch {
     return reply.code(401).send({ error: 'Invalid token' });
   }
@@ -55,7 +58,28 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
     .orderBy(asc(organizationMembers.createdAt));
 
   if (memberships.length === 0) {
-    return reply.code(403).send({ error: 'User belongs to no organization' });
+    // Auto-provision: brand-new user has no public.users row, no org, no membership.
+    // Create all three now so the request proceeds. This branch only runs once per user
+    // (on subsequent requests the membership already exists). §6.3 / identity.ts.
+    const rawEmail = (jwtPayload.email as string | undefined) ?? `${userId}@placeholder.local`;
+    const localPart = rawEmail.split('@')[0]!.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const suffix = randomBytes(3).toString('hex');
+    const slug = `${localPart}-${suffix}`;
+    const orgName = `${localPart.charAt(0).toUpperCase()}${localPart.slice(1)}'s workspace`;
+
+    await db.insert(users).values({ id: userId, email: rawEmail, fullName: null }).onConflictDoNothing();
+
+    const [newOrg] = await db
+      .insert(organizations)
+      .values({ name: orgName, slug, plan: 'free' })
+      .returning();
+
+    await db
+      .insert(organizationMembers)
+      .values({ organizationId: newOrg!.id, userId, role: 'owner' });
+
+    req.auth = { userId, orgId: newOrg!.id };
+    return;
   }
 
   let orgId: string;

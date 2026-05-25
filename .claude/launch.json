@@ -6,6 +6,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@wegetfound/web", "dev"],
       "port": 5173
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@wegetfound/api", "dev"],
+      "cwd": "C:\\wegetfound",
+      "port": 3001
     }
   ]
 }

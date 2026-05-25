@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
-import { db, businesses, findabilityScores, fixes, scoreBusiness } from '@wegetfound/db';
+import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts } from '@wegetfound/db';
 
 // Authenticated, org-scoped read endpoints (§9.4). Every query filters by the
 // active org from the JWT — RLS is the DB boundary, this is defense in depth.
@@ -26,7 +26,64 @@ async function require404<T>(value: T | null, reply: FastifyReply): Promise<T | 
   return value;
 }
 
+type CreateBusinessBody = {
+  name: string;
+  websiteUrl?: string;
+  vertical?: string;
+  category?: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  phone?: string;
+  email?: string;
+};
+
 export async function businessRoutes(app: FastifyInstance): Promise<void> {
+  // POST /businesses — create a business in the caller's active org.
+  app.post<{ Body: CreateBusinessBody }>('/businesses', async (req, reply) => {
+    const { orgId } = req.auth!;
+    const { name, websiteUrl, vertical, category, city, region, country, phone, email } = req.body;
+
+    if (!name?.trim()) {
+      return reply.code(400).send({ error: 'Business name is required.' });
+    }
+
+    const inserted = await db
+      .insert(businesses)
+      .values({
+        organizationId: orgId,
+        name: name.trim(),
+        ...(websiteUrl !== undefined && { websiteUrl }),
+        ...(vertical !== undefined && { vertical: vertical as import('@wegetfound/shared').Vertical }),
+        ...(category !== undefined && { category }),
+        ...(city !== undefined && { city }),
+        ...(region !== undefined && { region }),
+        ...(country !== undefined && { country }),
+        ...(phone !== undefined && { phone }),
+        ...(email !== undefined && { email }),
+      })
+      .returning();
+
+    const business = inserted[0];
+    if (!business) return reply.code(500).send({ error: 'Failed to create business.' });
+
+    // Auto-seed default tracked prompts so the PromptTester shows useful starting
+    // points and the first audit is never a dead run with a hollow 0 score.
+    const defaultPrompts = buildDefaultPrompts({
+      name: business.name,
+      category: business.category,
+      city: business.city,
+      country: business.country,
+    });
+    if (defaultPrompts.length > 0) {
+      await db.insert(trackedPrompts).values(
+        defaultPrompts.map((promptText) => ({ businessId: business.id, promptText })),
+      );
+    }
+
+    return reply.code(201).send({ business });
+  });
+
   // GET /businesses — all businesses in the active org.
   app.get('/businesses', async (req: FastifyRequest) => {
     const { orgId } = req.auth!;

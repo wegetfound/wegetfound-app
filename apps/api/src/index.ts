@@ -1,3 +1,4 @@
+import './load-env.js';
 import { buildServer } from './server.js';
 
 // Hosts (Render, Railway, Fly, etc.) inject PORT; fall back to API_PORT for local dev.

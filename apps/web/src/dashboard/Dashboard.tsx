@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { Business, Fix, Score } from '../api';
+import type { Business, Fix, MeResponse, Score } from '../api';
 import { useAuth } from '../auth/AuthProvider';
+import { Onboarding } from '../onboarding/Onboarding';
+import { PromptTester } from './PromptTester';
 
 function scoreColor(score: number): string {
   if (score >= 67) return '#1f9d55';
@@ -9,15 +11,122 @@ function scoreColor(score: number): string {
   return '#dc2626';
 }
 
+// ---------- Per-engine breakdown ----------
+const ENGINES: { key: keyof Score; label: string }[] = [
+  { key: 'chatgptScore', label: 'ChatGPT' },
+  { key: 'perplexityScore', label: 'Perplexity' },
+  { key: 'claudeScore', label: 'Claude' },
+  { key: 'geminiScore', label: 'Gemini' },
+  { key: 'googleAioScore', label: 'Google AI Overviews' },
+];
+
+function EngineBreakdown({ score }: { score: Score }) {
+  const rows = ENGINES.filter((e) => score[e.key] != null);
+  if (rows.length === 0) return null;
+  return (
+    <div className="engine-breakdown">
+      {rows.map(({ key, label }) => {
+        const val = score[key] as number;
+        return (
+          <div key={key} className="engine-row">
+            <span className="engine-name muted">{label}</span>
+            <div className="engine-bar">
+              <div
+                className="engine-fill"
+                style={{ width: `${val}%`, background: scoreColor(val) }}
+              />
+            </div>
+            <span className="engine-val">{val}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- Score history chart ----------
+const CHART_H = 80;
+const CHART_PAD = 8;
+
+function HistoryChart({ history }: { history: Score[] }) {
+  // API returns newest-first; chart wants oldest-first
+  const points = [...history].reverse();
+
+  if (points.length < 2) {
+    return (
+      <section className="card history-card">
+        <h3>Your Findability Score over time</h3>
+        <p className="muted">Run a few audits to see your trend.</p>
+      </section>
+    );
+  }
+
+  const n = points.length;
+  // Build polyline coords in a 0..1000 × CHART_H viewBox
+  const xStep = 1000 / (n - 1);
+  const coords = points
+    .map((p, i) => {
+      const x = i * xStep;
+      const y = CHART_PAD + (1 - p.overallScore / 100) * (CHART_H - CHART_PAD * 2);
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  // n >= 2 is guaranteed by the early-return above
+  const lastScore = points[n - 1]!.overallScore;
+  const firstScore = points[0]!.overallScore;
+  const delta = lastScore - firstScore;
+  const deltaLabel = delta >= 0 ? `+${delta}` : `${delta}`;
+
+  return (
+    <section className="card history-card">
+      <div className="history-header">
+        <h3>Your Findability Score over time</h3>
+        <span className="history-delta" style={{ color: scoreColor(lastScore) }}>
+          {deltaLabel} pts
+        </span>
+      </div>
+      <svg
+        className="history-svg"
+        viewBox={`0 0 1000 ${CHART_H}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <polyline
+          points={coords}
+          fill="none"
+          stroke={scoreColor(lastScore)}
+          strokeWidth="3"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* dots */}
+        {points.map((p, i) => (
+          <circle
+            key={i}
+            cx={i * xStep}
+            cy={CHART_PAD + (1 - p.overallScore / 100) * (CHART_H - CHART_PAD * 2)}
+            r="6"
+            fill={scoreColor(p.overallScore)}
+          />
+        ))}
+      </svg>
+    </section>
+  );
+}
+
+// ---------- Dashboard ----------
 export function Dashboard() {
   const { session, signOut } = useAuth();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [score, setScore] = useState<Score | null>(null);
   const [fixes, setFixes] = useState<Fix[]>([]);
+  const [history, setHistory] = useState<Score[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [auditing, setAuditing] = useState(false);
+  const [me, setMe] = useState<MeResponse | null>(null);
 
   useEffect(() => {
     api
@@ -28,15 +137,21 @@ export function Dashboard() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    api.getMe().then(setMe).catch(() => {/* swallow — non-critical */});
   }, []);
 
   useEffect(() => {
     if (!selectedId) return;
     setError(null);
-    Promise.all([api.getScore(selectedId), api.getFixes(selectedId)])
-      .then(([s, f]) => {
+    Promise.all([
+      api.getScore(selectedId),
+      api.getFixes(selectedId),
+      api.getScoreHistory(selectedId),
+    ])
+      .then(([s, f, h]) => {
         setScore(s);
         setFixes(f);
+        setHistory(h);
       })
       .catch((e) => setError(String(e)));
   }, [selectedId]);
@@ -56,10 +171,39 @@ export function Dashboard() {
     setError(null);
     try {
       await api.triggerAudit(selectedId);
-      const [s, f] = await Promise.all([api.getScore(selectedId), api.getFixes(selectedId)]);
+      const [s, f, h] = await Promise.all([
+        api.getScore(selectedId),
+        api.getFixes(selectedId),
+        api.getScoreHistory(selectedId),
+      ]);
       setScore(s);
       setFixes(f);
+      setHistory(h);
     } catch (e) {
+      setError(String(e));
+    } finally {
+      setAuditing(false);
+    }
+  };
+
+  const handleBusinessCreated = async (b: Business) => {
+    setBusinesses((prev) => [...prev, b]);
+    setSelectedId(b.id);
+    // Auto-run the first audit so the user gets an immediate score after onboarding.
+    setAuditing(true);
+    setError(null);
+    try {
+      await api.triggerAudit(b.id);
+      const [s, f, h] = await Promise.all([
+        api.getScore(b.id),
+        api.getFixes(b.id),
+        api.getScoreHistory(b.id),
+      ]);
+      setScore(s);
+      setFixes(f);
+      setHistory(h);
+    } catch (e) {
+      // Non-fatal — user can always click "Re-run audit" manually.
       setError(String(e));
     } finally {
       setAuditing(false);
@@ -72,12 +216,21 @@ export function Dashboard() {
     <div className="app">
       <header className="topbar">
         <span className="brand small">wegetfound<span className="dot">.ai</span></span>
+        {me && (
+          <span className="org-chip muted">
+            {me.organization.name} · {me.organization.plan}
+          </span>
+        )}
         <span className="muted">{session?.user.email}</span>
         <button className="btn ghost" onClick={signOut}>Sign out</button>
       </header>
 
       {loading && <p className="muted pad">Loading…</p>}
       {error && <p className="status error pad">{error}</p>}
+
+      {!loading && businesses.length === 0 && !error && (
+        <Onboarding onCreated={handleBusinessCreated} />
+      )}
 
       {!loading && businesses.length > 0 && (
         <div className="layout">
@@ -113,7 +266,7 @@ export function Dashboard() {
                     <span className="score-of">/100</span>
                   </div>
                   <div className="score-meta">
-                    <h3>Findability Score</h3>
+                    <h3>Your Findability Score</h3>
                     {score ? (
                       <>
                         <p className="muted">
@@ -128,6 +281,10 @@ export function Dashboard() {
                     )}
                   </div>
                 </section>
+
+                {score && <EngineBreakdown score={score} />}
+
+                <HistoryChart history={history} />
 
                 <section>
                   <h3>What to fix next <span className="muted">({fixes.length})</span></h3>
@@ -153,14 +310,12 @@ export function Dashboard() {
                     </ul>
                   )}
                 </section>
+
+                <PromptTester businessId={selected.id} />
               </>
             )}
           </main>
         </div>
-      )}
-
-      {!loading && businesses.length === 0 && !error && (
-        <p className="muted pad">No businesses yet.</p>
       )}
     </div>
   );
