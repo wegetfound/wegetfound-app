@@ -1,0 +1,35 @@
+# Render blueprint for the wegetfound.ai API. Create the service via Render →
+# "New +" → "Blueprint" → point at this repo. Secrets (sync:false) are set in the
+# Render dashboard, never committed.
+services:
+  - type: web
+    name: wegetfound-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Supabase / database
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # AI engine adapters (only the funded ones need real keys)
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GOOGLE_AI_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false
+      # CORS: the deployed web origin (set after Vercel is live)
+      - key: WEB_URL
+        sync: false
