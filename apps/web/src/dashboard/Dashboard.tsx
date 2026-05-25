@@ -17,6 +17,7 @@ export function Dashboard() {
   const [fixes, setFixes] = useState<Fix[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [auditing, setAuditing] = useState(false);
 
   useEffect(() => {
     api
@@ -47,6 +48,22 @@ export function Dashboard() {
   const act = async (fixId: string, action: 'complete' | 'skip') => {
     await (action === 'complete' ? api.completeFix(fixId) : api.skipFix(fixId));
     refreshFixes();
+  };
+
+  const runAudit = async () => {
+    if (!selectedId) return;
+    setAuditing(true);
+    setError(null);
+    try {
+      await api.triggerAudit(selectedId);
+      const [s, f] = await Promise.all([api.getScore(selectedId), api.getFixes(selectedId)]);
+      setScore(s);
+      setFixes(f);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAuditing(false);
+    }
   };
 
   const selected = businesses.find((b) => b.id === selectedId) ?? null;
@@ -80,8 +97,15 @@ export function Dashboard() {
           <main className="content">
             {selected && (
               <>
-                <h2>{selected.name}</h2>
-                <p className="muted">{selected.websiteUrl}</p>
+                <div className="biz-head">
+                  <div>
+                    <h2>{selected.name}</h2>
+                    <p className="muted">{selected.websiteUrl}</p>
+                  </div>
+                  <button className="btn primary" onClick={runAudit} disabled={auditing}>
+                    {auditing ? 'Checking…' : 'Re-run audit'}
+                  </button>
+                </div>
 
                 <section className="card score-card">
                   <div className="score-ring" style={{ borderColor: scoreColor(score?.overallScore ?? 0) }}>

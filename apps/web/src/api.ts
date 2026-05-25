@@ -65,6 +65,13 @@ export const api = {
   getFixes: (businessId: string) =>
     getJson<{ fixes: Fix[] }>(`/businesses/${businessId}/fixes`).then((r) => r.fixes),
 
+  // Runs a fresh audit + re-score now. Synchronous on the server (can take ~30-45s).
+  triggerAudit: (businessId: string) =>
+    authedFetch(`/businesses/${businessId}/audit`, { method: 'POST' }).then((r) => {
+      if (!r.ok) throw new Error(`audit → ${r.status}`);
+      return r.json() as Promise<{ overallScore: number }>;
+    }),
+
   completeFix: (fixId: string) =>
     authedFetch(`/fixes/${fixId}/complete`, { method: 'POST' }).then((r) => {
       if (!r.ok) throw new Error(`complete → ${r.status}`);
