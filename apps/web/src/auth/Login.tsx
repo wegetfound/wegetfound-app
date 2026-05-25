@@ -12,7 +12,10 @@ export function Login() {
   const sendMagicLink = async () => {
     setBusy(true);
     setStatus(null);
-    const { error } = await supabase.auth.signInWithOtp({ email });
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
     setStatus(error ? error.message : 'Check your email for a sign-in link.');
     setBusy(false);
   };
