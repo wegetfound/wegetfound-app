@@ -14,6 +14,7 @@
   "dependencies": {
     "@fastify/cors": "^10.0.1",
     "@wegetfound/ai-adapters": "workspace:*",
+    "@wegetfound/audit": "workspace:*",
     "@wegetfound/copy": "workspace:*",
     "@wegetfound/db": "workspace:*",
     "@wegetfound/scoring": "workspace:*",

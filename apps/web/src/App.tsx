@@ -1,6 +1,8 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { Login } from './auth/Login';
 import { Dashboard } from './dashboard/Dashboard';
+import { FreeAudit } from './free-audit/FreeAudit';
 
 function Gate() {
   const { session, loading } = useAuth();
@@ -10,8 +12,18 @@ function Gate() {
 
 export function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/audit" element={<FreeAudit />} />
+        <Route
+          path="*"
+          element={
+            <AuthProvider>
+              <Gate />
+            </AuthProvider>
+          }
+        />
+      </Routes>
+    </BrowserRouter>
   );
 }

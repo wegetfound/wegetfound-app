@@ -89,3 +89,12 @@ h1, h2, h3 { margin: 0 0 0.4rem; }
 }
 .fix-actions { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
 .spacer { flex: 1; }
+
+/* Free audit page */
+.audit-card { width: 480px; max-width: 100%; }
+.audit-result { margin-top: 0.5rem; }
+.audit-signals { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.75rem; }
+.signal-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; }
+.signal-label { color: var(--muted); }
+.signal-pct { font-weight: 600; }
+.audit-email-block { margin-top: 1.25rem; padding: 1rem; background: #f7f8fa; }
