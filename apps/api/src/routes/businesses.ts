@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
-import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts } from '@wegetfound/db';
+import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
 
 // Authenticated, org-scoped read endpoints (§9.4). Every query filters by the
 // active org from the JWT — RLS is the DB boundary, this is defense in depth.
@@ -146,10 +146,35 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
   // Synchronous for v1 (single business, few prompts). When audits get heavier this
   // moves behind a BullMQ queue and returns 202 — the route contract stays the same.
   app.post<{ Params: IdParams }>('/businesses/:id/audit', async (req, reply) => {
-    const { orgId } = req.auth!;
+    const { orgId, userId } = req.auth!;
     if (!(await findOwnedBusiness(orgId, req.params.id))) return reply.code(404).send({ error: 'Not found' });
 
+    // Enforce the daily AI run cap before spending any money.
+    const cap = await isOverDailyCap(orgId);
+    if (cap.over) {
+      return reply.code(429).send({
+        error: `Daily audit limit reached (${cap.capPerDay}/day). Try again tomorrow.`,
+        capPerDay: cap.capPerDay,
+        runsToday: cap.runsToday,
+      });
+    }
+
     const result = await scoreBusiness(req.params.id, { onLog: (m) => req.log.info(m) });
+
+    // Record usage after success. Failure here must not break the response.
+    try {
+      const engineCalls = (result.promptsTested ?? 0) * (result.liveEngines?.length ?? 0);
+      await recordAiRun({
+        organizationId: orgId,
+        userId,
+        businessId: req.params.id,
+        kind: 'audit.run',
+        engineCalls,
+      });
+    } catch (err) {
+      req.log.warn({ err }, 'Failed to record audit.run usage event');
+    }
+
     return {
       overallScore: result.breakdown.overallScore,
       multiplier: result.breakdown.multiplier,

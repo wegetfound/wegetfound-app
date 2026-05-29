@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { db, users, organizations } from '@wegetfound/db';
+import { db, users, organizations, getOrgUsage } from '@wegetfound/db';
 
 // Current user profile + active organization (§9.4).
 // Registered inside the auth scope, so req.auth is always set here.
@@ -22,5 +22,12 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return { user, organization };
+  });
+
+  // GET /me/usage — AI run counts, estimated spend, and remaining cap for today.
+  app.get('/me/usage', async (req) => {
+    const { orgId } = req.auth!;
+    const usage = await getOrgUsage(orgId);
+    return { usage };
   });
 }

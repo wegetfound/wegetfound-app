@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
-import { db, businesses, trackedPrompts } from '@wegetfound/db';
+import { db, businesses, trackedPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
 import { engineRegistry } from '@wegetfound/ai-adapters';
 
 // Live prompt-test + tracked-prompt management (§3.3, §7.4). Registered inside
@@ -40,12 +40,22 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: IdParams; Body: TestBody }>(
     '/businesses/:id/prompts/test',
     async (req, reply) => {
-      const { orgId } = req.auth!;
+      const { orgId, userId } = req.auth!;
       const biz = await findOwnedBusiness(orgId, req.params.id);
       if (!biz) return reply.code(404).send({ error: 'Not found' });
 
       const prompt = req.body?.prompt?.trim() ?? '';
       if (!prompt) return reply.code(400).send({ error: 'Type a question to test.' });
+
+      // Enforce the daily AI run cap before spending any money.
+      const cap = await isOverDailyCap(orgId);
+      if (cap.over) {
+        return reply.code(429).send({
+          error: `Daily audit limit reached (${cap.capPerDay}/day). Try again tomorrow.`,
+          capPerDay: cap.capPerDay,
+          runsToday: cap.runsToday,
+        });
+      }
 
       const geography =
         biz.city && biz.country ? `${biz.city}, ${biz.country}` : undefined;
@@ -84,6 +94,19 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
           }
         }),
       );
+
+      // Record usage after success. Failure here must not break the response.
+      try {
+        await recordAiRun({
+          organizationId: orgId,
+          userId,
+          businessId: req.params.id,
+          kind: 'prompt.tested',
+          engineCalls: results.length,
+        });
+      } catch (err) {
+        req.log.warn({ err }, 'Failed to record prompt.tested usage event');
+      }
 
       return { prompt, results };
     },

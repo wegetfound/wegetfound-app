@@ -1,10 +1,12 @@
 import { ENGINES, ENGINE_IDS } from '@wegetfound/shared';
+import type { EngineId } from '@wegetfound/shared';
 import type { EngineScores, Signals, ScoreBreakdown, SignalContribution } from './types.js';
 
-// Findability Score methodology v1.0 (CLAUDE.md §8). Pure functions only.
+// Findability Score methodology v1.1 (CLAUDE.md §8). Pure functions only.
 // Bump METHODOLOGY_VERSION whenever the formula changes — every stored score
 // records the version it was computed under, so history stays comparable (§8.2).
-export const METHODOLOGY_VERSION = 'v1.0';
+// v1.1: re-normalise weighted base over live engines only (dead engines no longer silently cap the score).
+export const METHODOLOGY_VERSION = 'v1.1';
 
 const MULTIPLIER_MIN = 0.5;
 const MULTIPLIER_MAX = 1.2;
@@ -17,14 +19,30 @@ export function inclusionScore(promptsTested: number, promptsWinning: number): n
   return Math.round((promptsWinning / promptsTested) * 100);
 }
 
-/** Weighted blend of the five engine sub-scores. Weights live in @wegetfound/shared. */
-export function weightedEngineBase(scores: EngineScores): number {
-  return ENGINE_IDS.reduce((sum, id) => sum + clamp(scores[id], 0, 100) * ENGINES[id].weight, 0);
+/**
+ * Weighted blend of the five engine sub-scores. Weights live in @wegetfound/shared.
+ *
+ * When `liveEngines` is provided, the sum is re-normalised over only those engines so
+ * that dead / unqueried engines do not silently cap the maximum achievable score.
+ * When omitted (or empty), all ENGINE_IDS are treated as live — weights already sum
+ * to 1.0, so this is identical to the original formula (backward-compatible).
+ */
+export function weightedEngineBase(scores: EngineScores, liveEngines?: EngineId[]): number {
+  const ids: EngineId[] =
+    liveEngines && liveEngines.length > 0 ? liveEngines : (ENGINE_IDS as unknown as EngineId[]);
+  const liveWeightSum = ids.reduce((s, id) => s + ENGINES[id].weight, 0);
+  if (liveWeightSum === 0) return 0;
+  const weightedSum = ids.reduce((sum, id) => sum + clamp(scores[id], 0, 100) * ENGINES[id].weight, 0);
+  return weightedSum / liveWeightSum;
 }
 
 /** Compute the full, explainable Findability Score. */
-export function computeFindabilityScore(scores: EngineScores, signals: Signals): ScoreBreakdown {
-  const weightedBase = weightedEngineBase(scores);
+export function computeFindabilityScore(
+  scores: EngineScores,
+  signals: Signals,
+  liveEngines?: EngineId[],
+): ScoreBreakdown {
+  const weightedBase = weightedEngineBase(scores, liveEngines);
 
   // Additive bonuses (each signal scaled by its cap), then a multiplicative penalty.
   const contributions: SignalContribution[] = [

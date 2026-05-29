@@ -36,3 +36,5 @@ drizzle/.snapshot/
 *.p8
 *.p12
 *.mobileprovision
+
+.vercel

@@ -62,6 +62,7 @@ export const SCHEMA_STATUSES = ['draft', 'published', 'outdated'] as const;
 export type SchemaStatus = (typeof SCHEMA_STATUSES)[number];
 
 // Internal event bus (§6.7). v1 internal subscribers; v2 exposed via open API.
+// audit.run / prompt.tested are usage-metering events for the daily AI cost cap.
 export const EVENT_TYPES = [
   'score.updated',
   'fix.completed',
@@ -69,5 +70,7 @@ export const EVENT_TYPES = [
   'mention.gained',
   'mention.lost',
   'competitor.detected',
+  'audit.run',
+  'prompt.tested',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];

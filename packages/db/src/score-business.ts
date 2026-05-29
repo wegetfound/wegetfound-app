@@ -174,7 +174,7 @@ export async function scoreBusiness(
       perEngineStored[id] = null;
     }
   }
-  const breakdown = computeFindabilityScore(engineScores, audit.signals);
+  const breakdown = computeFindabilityScore(engineScores, audit.signals, [...live]);
 
   // 4. Store the score row (append-only history).
   await db.insert(findabilityScores).values({
