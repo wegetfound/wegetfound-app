@@ -3,6 +3,7 @@
 # packages but leaves node_modules external, so the installed deps must be present
 # at runtime — hence we keep node_modules in the final image.
 FROM node:22-slim
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /app
 
