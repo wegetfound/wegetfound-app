@@ -35,11 +35,42 @@ export interface Fix {
   status: string;
 }
 
+// Retry logic for handling cold-start timeouts on free-tier hosting
+async function fetchWithRetry(
+  url: string,
+  init?: RequestInit,
+  maxAttempts = 3
+): Promise<Response> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60_000); // 60s timeout, generous for cold-start
+
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout((error as any)?.timeoutId);
+
+      if (attempt === maxAttempts) throw error;
+
+      // Exponential backoff: 1s, 2s, 4s
+      const delayMs = Math.pow(2, attempt - 1) * 1000;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error('Failed to fetch after retries');
+}
+
 async function authedFetch(path: string, init?: RequestInit): Promise<Response> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Not authenticated');
-  return fetch(`${API_URL}${path}`, {
+  return fetchWithRetry(`${API_URL}${path}`, {
     ...init,
     headers: { ...init?.headers, Authorization: `Bearer ${token}` },
   });
