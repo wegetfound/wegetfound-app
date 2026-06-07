@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
 import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
-import { validateString, validateOptionalString, validateOptionalUrl, validateOptionalEmail, validateVertical } from '../validation.js';
+import { validateString, validateOptionalString, validateOptionalUrl, validateOptionalEmail, validateVertical, validateUuid } from '../validation.js';
 import { AppError, ErrorCodes } from '../error-handler.js';
 
 // Authenticated, org-scoped read endpoints (§9.4). Every query filters by the
@@ -146,7 +146,11 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
   // GET /businesses/:id
   app.get<{ Params: IdParams }>('/businesses/:id', async (req, reply) => {
     const { orgId } = req.auth!;
-    const business = await require404(await findOwnedBusiness(orgId, req.params.id), reply);
+    const idValidation = validateUuid(req.params.id);
+    if (!idValidation.ok) {
+      return reply.code(400).send({ error: idValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+    const business = await require404(await findOwnedBusiness(orgId, idValidation.id), reply);
     if (!business) return;
     return { business };
   });
@@ -154,12 +158,18 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
   // GET /businesses/:id/score — latest Findability Score.
   app.get<{ Params: IdParams }>('/businesses/:id/score', async (req, reply) => {
     const { orgId } = req.auth!;
-    if (!(await findOwnedBusiness(orgId, req.params.id))) return reply.code(404).send({ error: 'Not found' });
+    const idValidation = validateUuid(req.params.id);
+    if (!idValidation.ok) {
+      return reply.code(400).send({ error: idValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+    if (!(await findOwnedBusiness(orgId, idValidation.id))) {
+      return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+    }
 
     const [latest] = await db
       .select()
       .from(findabilityScores)
-      .where(eq(findabilityScores.businessId, req.params.id))
+      .where(eq(findabilityScores.businessId, idValidation.id))
       .orderBy(desc(findabilityScores.calculatedAt))
       .limit(1);
 
@@ -170,12 +180,18 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
   // GET /businesses/:id/score/history — newest first.
   app.get<{ Params: IdParams }>('/businesses/:id/score/history', async (req, reply) => {
     const { orgId } = req.auth!;
-    if (!(await findOwnedBusiness(orgId, req.params.id))) return reply.code(404).send({ error: 'Not found' });
+    const idValidation = validateUuid(req.params.id);
+    if (!idValidation.ok) {
+      return reply.code(400).send({ error: idValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+    if (!(await findOwnedBusiness(orgId, idValidation.id))) {
+      return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+    }
 
     const history = await db
       .select()
       .from(findabilityScores)
-      .where(eq(findabilityScores.businessId, req.params.id))
+      .where(eq(findabilityScores.businessId, idValidation.id))
       .orderBy(desc(findabilityScores.calculatedAt))
       .limit(100);
     return { history };
@@ -184,12 +200,18 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
   // GET /businesses/:id/fixes — the Daily Fix queue (pending, highest priority first).
   app.get<{ Params: IdParams }>('/businesses/:id/fixes', async (req, reply) => {
     const { orgId } = req.auth!;
-    if (!(await findOwnedBusiness(orgId, req.params.id))) return reply.code(404).send({ error: 'Not found' });
+    const idValidation = validateUuid(req.params.id);
+    if (!idValidation.ok) {
+      return reply.code(400).send({ error: idValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+    if (!(await findOwnedBusiness(orgId, idValidation.id))) {
+      return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+    }
 
     const queue = await db
       .select()
       .from(fixes)
-      .where(and(eq(fixes.businessId, req.params.id), eq(fixes.status, 'pending')))
+      .where(and(eq(fixes.businessId, idValidation.id), eq(fixes.status, 'pending')))
       .orderBy(desc(fixes.priority));
     return { fixes: queue };
   });

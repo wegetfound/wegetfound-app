@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
 import { db, businesses, trackedPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
 import { engineRegistry } from '@wegetfound/ai-adapters';
+import { validateUuid, validateString } from '../validation.js';
+import { AppError, ErrorCodes } from '../error-handler.js';
 
 // Live prompt-test + tracked-prompt management (§3.3, §7.4). Registered inside
 // the auth scope — req.auth is always set. Ownership is always verified before
@@ -41,11 +43,27 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
     '/businesses/:id/prompts/test',
     async (req, reply) => {
       const { orgId, userId } = req.auth!;
-      const biz = await findOwnedBusiness(orgId, req.params.id);
-      if (!biz) return reply.code(404).send({ error: 'Not found' });
 
-      const prompt = req.body?.prompt?.trim() ?? '';
-      if (!prompt) return reply.code(400).send({ error: 'Type a question to test.' });
+      // Validate business ID
+      const bizIdValidation = validateUuid(req.params.id);
+      if (!bizIdValidation.ok) {
+        return reply.code(400).send({ error: bizIdValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+      }
+
+      const biz = await findOwnedBusiness(orgId, bizIdValidation.id);
+      if (!biz) {
+        return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+      }
+
+      // Validate prompt text
+      const promptValidation = validateString(req.body?.prompt, {
+        minLength: 1,
+        maxLength: 1000,
+        field: 'prompt',
+      });
+      if (!promptValidation.ok) {
+        return reply.code(400).send({ error: promptValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+      }
 
       // Enforce the daily AI run cap before spending any money.
       const cap = await isOverDailyCap(orgId);
@@ -68,7 +86,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
       const results = await Promise.all(
         engines.map(async (engine) => {
           try {
-            const response = await engine.queryPrompt(prompt, { geography });
+            const response = await engine.queryPrompt(promptValidation.value, { geography });
             const parsed = engine.parseResponse(response.raw);
             const mention = engine.detectBusinessMention(parsed, { name: biz.name });
             return {
@@ -100,7 +118,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
         await recordAiRun({
           organizationId: orgId,
           userId,
-          businessId: req.params.id,
+          businessId: bizIdValidation.id,
           kind: 'prompt.tested',
           engineCalls: results.length,
         });
@@ -108,7 +126,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
         req.log.warn({ err }, 'Failed to record prompt.tested usage event');
       }
 
-      return { prompt, results };
+      return { prompt: promptValidation.value, results };
     },
   );
 
@@ -117,16 +135,36 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
     '/businesses/:id/prompts',
     async (req, reply) => {
       const { orgId } = req.auth!;
-      const biz = await findOwnedBusiness(orgId, req.params.id);
-      if (!biz) return reply.code(404).send({ error: 'Not found' });
 
-      const promptText = req.body?.prompt?.trim() ?? '';
-      if (!promptText) return reply.code(400).send({ error: 'Type a question to track.' });
+      // Validate business ID
+      const bizIdValidation = validateUuid(req.params.id);
+      if (!bizIdValidation.ok) {
+        return reply.code(400).send({ error: bizIdValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+      }
+
+      const biz = await findOwnedBusiness(orgId, bizIdValidation.id);
+      if (!biz) {
+        return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+      }
+
+      // Validate prompt text
+      const promptValidation = validateString(req.body?.prompt, {
+        minLength: 1,
+        maxLength: 1000,
+        field: 'prompt',
+      });
+      if (!promptValidation.ok) {
+        return reply.code(400).send({ error: promptValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+      }
 
       const [prompt] = await db
         .insert(trackedPrompts)
-        .values({ businessId: biz.id, promptText })
+        .values({ businessId: bizIdValidation.id, promptText: promptValidation.value })
         .returning();
+
+      if (!prompt) {
+        throw new AppError(ErrorCodes.INTERNAL_ERROR, 'Failed to save prompt', 500);
+      }
 
       return reply.code(201).send({ prompt });
     },
@@ -135,8 +173,17 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
   // GET /businesses/:id/prompts — list active tracked prompts, newest first.
   app.get<{ Params: IdParams }>('/businesses/:id/prompts', async (req, reply) => {
     const { orgId } = req.auth!;
-    const biz = await findOwnedBusiness(orgId, req.params.id);
-    if (!biz) return reply.code(404).send({ error: 'Not found' });
+
+    // Validate business ID
+    const bizIdValidation = validateUuid(req.params.id);
+    if (!bizIdValidation.ok) {
+      return reply.code(400).send({ error: bizIdValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const biz = await findOwnedBusiness(orgId, bizIdValidation.id);
+    if (!biz) {
+      return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+    }
 
     const prompts = await db
       .select({
@@ -160,8 +207,17 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /prompts/:id — hard-delete a tracked prompt the caller owns.
   app.delete<{ Params: IdParams }>('/prompts/:id', async (req, reply) => {
     const { orgId } = req.auth!;
-    const id = await findOwnedPrompt(orgId, req.params.id);
-    if (!id) return reply.code(404).send({ error: 'Not found' });
+
+    // Validate prompt ID
+    const promptIdValidation = validateUuid(req.params.id);
+    if (!promptIdValidation.ok) {
+      return reply.code(400).send({ error: promptIdValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const id = await findOwnedPrompt(orgId, promptIdValidation.id);
+    if (!id) {
+      return reply.code(404).send({ error: 'Prompt not found', code: ErrorCodes.NOT_FOUND });
+    }
 
     await db.delete(trackedPrompts).where(eq(trackedPrompts.id, id));
     return { deleted: true };

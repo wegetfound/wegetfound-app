@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { getStripe, getOrCreateStripeCustomer } from '../stripe';
+import { getStripe, getOrCreateStripeCustomer } from '../stripe.js';
 import { db, organizations } from '@wegetfound/db';
 import { eq } from 'drizzle-orm';
+import { validateEnum } from '../validation.js';
+import { AppError, ErrorCodes } from '../error-handler.js';
 
 interface CheckoutSessionRequest {
   plan: 'starter' | 'growth' | 'agency';
@@ -26,8 +28,20 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
       try {
         const { plan, frequency = 'monthly' } = request.body ?? {};
 
-        if (!plan || !['starter', 'growth', 'agency'].includes(plan)) {
-          return reply.code(400).send({ error: 'Invalid plan' });
+        // Validate plan
+        const planValidation = validateEnum(plan, ['starter', 'growth', 'agency'] as const, 'plan');
+        if (!planValidation.ok) {
+          return reply.code(400).send({ error: planValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+        }
+
+        // Validate frequency
+        const frequencyValidation = validateEnum(
+          frequency,
+          ['monthly', 'annual'] as const,
+          'frequency',
+        );
+        if (!frequencyValidation.ok) {
+          return reply.code(400).send({ error: frequencyValidation.error, code: ErrorCodes.VALIDATION_ERROR });
         }
 
         const userId = request.user.sub as string;
@@ -46,7 +60,7 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
         const customerId = await getOrCreateStripeCustomer(org.id, userEmail, org.name);
 
         // Get price ID from env vars
-        const priceIdEnvVar = `STRIPE_PRICE_${plan.toUpperCase()}_${frequency.toUpperCase()}`;
+        const priceIdEnvVar = `STRIPE_PRICE_${planValidation.value.toUpperCase()}_${frequencyValidation.value.toUpperCase()}`;
         const priceId = process.env[priceIdEnvVar];
 
         if (!priceId || priceId.includes('placeholder')) {
