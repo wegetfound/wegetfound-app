@@ -23,7 +23,6 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
   // Creates a Stripe Checkout Session and returns the URL
   app.post<{ Body: CheckoutSessionRequest }>(
     '/stripe/checkout-session',
-    { onRequest: [app.authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const { plan, frequency = 'monthly' } = request.body ?? {};
@@ -114,7 +113,6 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
   // Creates a Stripe Billing Portal Session and returns the URL
   app.post<{ Body: BillingPortalRequest }>(
     '/stripe/billing-portal-session',
-    { onRequest: [app.authenticate] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const org = await db.query.organizations.findFirst({
