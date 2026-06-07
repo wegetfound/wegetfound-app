@@ -26,8 +26,18 @@ export function buildServer(): FastifyInstance {
   // Register error handler first (before routes)
   registerErrorHandler(app);
 
+  // CORS: Allow production domains + all Cloudflare Pages preview subdomains + localhost
+  const corsOrigins = [process.env.WEB_URL ?? '', process.env.MARKETING_URL ?? ''].filter(Boolean);
   app.register(cors, {
-    origin: [process.env.WEB_URL ?? '', process.env.MARKETING_URL ?? ''].filter(Boolean),
+    origin: (origin, cb) => {
+      // Allow hardcoded production domains
+      if (corsOrigins.includes(origin)) return cb(null, true);
+      // Allow all *.wegetfound-app.pages.dev (Cloudflare Pages previews)
+      if (origin?.endsWith('.wegetfound-app.pages.dev') || origin?.endsWith('wegetfound-app.pages.dev')) return cb(null, true);
+      // Allow localhost (dev)
+      if (origin?.startsWith('http://localhost') || origin?.startsWith('http://127.0.0.1')) return cb(null, true);
+      return cb(new Error('CORS not allowed'), false);
+    },
   });
 
   // Public routes
