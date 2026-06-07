@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { db, organizations, events } from '@wegetfound/db';
 import { eq } from 'drizzle-orm';
-import { getStripe, mapStripePriceToPlan } from '../stripe';
+import { getStripe, mapStripePriceToPlan } from '../stripe.js';
+import { checkIdempotency, recordIdempotency, extractIdempotencyKey } from '../idempotency.js';
+import { AppError, ErrorCodes } from '../error-handler.js';
 
 /**
  * Stripe webhook handler. Verifies signature and processes subscription events.
@@ -45,14 +47,12 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        // Idempotency: check if we've already processed this event
-        const existingEvent = await db.query.events.findFirst({
-          where: (t) => eq(t.payload, JSON.stringify({ stripe_event_id: event.id })),
-        });
-
-        if (existingEvent) {
-          console.log(`Webhook event ${event.id} already processed`);
-          return reply.code(200).send({ received: true });
+        // Idempotency: use Stripe event ID as key
+        const idempotencyKey = extractIdempotencyKey(event.id);
+        const cached = await checkIdempotency<{ received: boolean }>(idempotencyKey);
+        if (cached.processed) {
+          app.log.info(`Webhook event ${event.id} already processed (from cache)`);
+          return reply.code(200).send(cached.result || { received: true });
         }
 
         // Handle subscription events
@@ -87,7 +87,9 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
           }
         }
 
-        return reply.code(200).send({ received: true });
+        const result = { received: true };
+        await recordIdempotency(idempotencyKey, result);
+        return reply.code(200).send(result);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         console.error('Webhook processing error:', message, err);

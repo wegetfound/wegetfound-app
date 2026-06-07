@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
 import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
+import { validateString, validateOptionalString, validateOptionalUrl, validateOptionalEmail, validateVertical } from '../validation.js';
+import { AppError, ErrorCodes } from '../error-handler.js';
 
 // Authenticated, org-scoped read endpoints (§9.4). Every query filters by the
 // active org from the JWT — RLS is the DB boundary, this is defense in depth.
@@ -44,28 +46,78 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
     const { orgId } = req.auth!;
     const { name, websiteUrl, vertical, category, city, region, country, phone, email } = req.body;
 
-    if (!name?.trim()) {
-      return reply.code(400).send({ error: 'Business name is required.' });
+    // Validate required name
+    const nameValidation = validateString(name, { minLength: 1, maxLength: 200, field: 'name' });
+    if (!nameValidation.ok) {
+      return reply.code(400).send({ error: nameValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    // Validate optional fields
+    const urlValidation = await validateOptionalUrl(websiteUrl);
+    if (!urlValidation.ok) {
+      return reply.code(400).send({ error: urlValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const categoryValidation = await validateOptionalString(category, { maxLength: 100, field: 'category' });
+    if (!categoryValidation.ok) {
+      return reply.code(400).send({ error: categoryValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const cityValidation = await validateOptionalString(city, { maxLength: 100, field: 'city' });
+    if (!cityValidation.ok) {
+      return reply.code(400).send({ error: cityValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const regionValidation = await validateOptionalString(region, { maxLength: 100, field: 'region' });
+    if (!regionValidation.ok) {
+      return reply.code(400).send({ error: regionValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const countryValidation = await validateOptionalString(country, { maxLength: 100, field: 'country' });
+    if (!countryValidation.ok) {
+      return reply.code(400).send({ error: countryValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const phoneValidation = await validateOptionalString(phone, { maxLength: 20, field: 'phone' });
+    if (!phoneValidation.ok) {
+      return reply.code(400).send({ error: phoneValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    const emailValidation = await validateOptionalEmail(email);
+    if (!emailValidation.ok) {
+      return reply.code(400).send({ error: emailValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    // Validate vertical if provided (optional)
+    let validatedVertical: string | undefined = undefined;
+    if (vertical !== undefined) {
+      const verticalValidation = validateVertical(vertical);
+      if (!verticalValidation.ok) {
+        return reply.code(400).send({ error: verticalValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+      }
+      validatedVertical = verticalValidation.vertical;
     }
 
     const inserted = await db
       .insert(businesses)
       .values({
         organizationId: orgId,
-        name: name.trim(),
-        ...(websiteUrl !== undefined && { websiteUrl }),
-        ...(vertical !== undefined && { vertical: vertical as import('@wegetfound/shared').Vertical }),
-        ...(category !== undefined && { category }),
-        ...(city !== undefined && { city }),
-        ...(region !== undefined && { region }),
-        ...(country !== undefined && { country }),
-        ...(phone !== undefined && { phone }),
-        ...(email !== undefined && { email }),
+        name: nameValidation.value,
+        ...(urlValidation.value !== null && { websiteUrl: urlValidation.value }),
+        ...(validatedVertical !== undefined && { vertical: validatedVertical as import('@wegetfound/shared').Vertical }),
+        ...(categoryValidation.value !== null && { category: categoryValidation.value }),
+        ...(cityValidation.value !== null && { city: cityValidation.value }),
+        ...(regionValidation.value !== null && { region: regionValidation.value }),
+        ...(countryValidation.value !== null && { country: countryValidation.value }),
+        ...(phoneValidation.value !== null && { phone: phoneValidation.value }),
+        ...(emailValidation.value !== null && { email: emailValidation.value }),
       })
       .returning();
 
     const business = inserted[0];
-    if (!business) return reply.code(500).send({ error: 'Failed to create business.' });
+    if (!business) {
+      throw new AppError(ErrorCodes.INTERNAL_ERROR, 'Failed to create business', 500);
+    }
 
     // Auto-seed default tracked prompts so the PromptTester shows useful starting
     // points and the first audit is never a dead run with a hollow 0 score.
