@@ -99,6 +99,10 @@ export async function getOrgUsage(organizationId: string): Promise<{
  * Cheap cap check: only counts today's run rows (no payload parsing needed).
  * Call this BEFORE the expensive AI work to gate the request.
  * Uses per-plan caps from getCapsForPlan().
+ *
+ * WARNING: This is a soft check. Between this check and recordAiRun(),
+ * another request could use the remaining quota (race condition).
+ * For hard enforcement, use recordAiRunWithCapCheck() instead.
  */
 export async function isOverDailyCap(
   organizationId: string,
@@ -131,4 +135,72 @@ export async function isOverDailyCap(
 
   const runsToday = Number(row?.count ?? 0);
   return { over: runsToday >= capPerDay, capPerDay, runsToday };
+}
+
+/**
+ * Hard cap enforcement: attempts to record AI run AND checks cap in a single transaction.
+ * Returns error if organization is over cap, preventing race conditions.
+ *
+ * Use this in critical paths where soft check + record isn't safe enough.
+ */
+export async function recordAiRunWithCapCheck(input: {
+  organizationId: string;
+  userId?: string | null;
+  businessId?: string | null;
+  kind: 'audit.run' | 'prompt.tested';
+  engineCalls: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, input.organizationId),
+  });
+
+  if (!org) throw new Error(`Organization ${input.organizationId} not found`);
+
+  const caps = getCapsForPlan(org.plan as any);
+  const capPerDay = caps.aiRunsPerDay === Infinity ? 999_999 : caps.aiRunsPerDay;
+
+  const now = new Date();
+  const startOfDay = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+
+  // Count today's runs
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(events)
+    .where(
+      and(
+        eq(events.organizationId, input.organizationId),
+        inArray(events.eventType, [...AI_RUN_TYPES]),
+        gte(events.createdAt, startOfDay),
+      ),
+    );
+
+  const runsToday = Number(row?.count ?? 0);
+
+  // Check cap BEFORE inserting
+  if (runsToday >= capPerDay) {
+    return {
+      success: false,
+      error: `Daily audit limit reached (${capPerDay}/day). Try again tomorrow.`,
+    };
+  }
+
+  // Insert event
+  try {
+    await db.insert(events).values({
+      organizationId: input.organizationId,
+      userId: input.userId ?? null,
+      businessId: input.businessId ?? null,
+      eventType: input.kind,
+      payload: { engineCalls: input.engineCalls },
+    });
+
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: `Failed to record usage: ${err instanceof Error ? err.message : 'Unknown error'}`,
+    };
+  }
 }

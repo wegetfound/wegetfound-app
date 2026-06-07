@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
-import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
+import { db, businesses, findabilityScores, fixes, trackedPrompts, scoreBusiness, buildDefaultPrompts, isOverDailyCap, recordAiRunWithCapCheck } from '@wegetfound/db';
 import { validateString, validateOptionalString, validateOptionalUrl, validateOptionalEmail, validateVertical, validateUuid } from '../validation.js';
 import { AppError, ErrorCodes } from '../error-handler.js';
 
@@ -221,32 +221,46 @@ export async function businessRoutes(app: FastifyInstance): Promise<void> {
   // moves behind a BullMQ queue and returns 202 — the route contract stays the same.
   app.post<{ Params: IdParams }>('/businesses/:id/audit', async (req, reply) => {
     const { orgId, userId } = req.auth!;
-    if (!(await findOwnedBusiness(orgId, req.params.id))) return reply.code(404).send({ error: 'Not found' });
 
-    // Enforce the daily AI run cap before spending any money.
+    // Validate business ID
+    const idValidation = validateUuid(req.params.id);
+    if (!idValidation.ok) {
+      return reply.code(400).send({ error: idValidation.error, code: ErrorCodes.VALIDATION_ERROR });
+    }
+
+    if (!(await findOwnedBusiness(orgId, idValidation.id))) {
+      return reply.code(404).send({ error: 'Business not found', code: ErrorCodes.NOT_FOUND });
+    }
+
+    // Soft check first (fast gate)
     const cap = await isOverDailyCap(orgId);
     if (cap.over) {
       return reply.code(429).send({
         error: `Daily audit limit reached (${cap.capPerDay}/day). Try again tomorrow.`,
+        code: ErrorCodes.RATE_LIMIT,
         capPerDay: cap.capPerDay,
         runsToday: cap.runsToday,
       });
     }
 
-    const result = await scoreBusiness(req.params.id, { onLog: (m) => req.log.info(m) });
+    // Run the audit
+    const result = await scoreBusiness(idValidation.id, { onLog: (m) => req.log.info(m) });
 
-    // Record usage after success. Failure here must not break the response.
-    try {
-      const engineCalls = (result.promptsTested ?? 0) * (result.liveEngines?.length ?? 0);
-      await recordAiRun({
-        organizationId: orgId,
-        userId,
-        businessId: req.params.id,
-        kind: 'audit.run',
-        engineCalls,
+    // Record usage with hard cap enforcement (prevents race conditions)
+    const engineCalls = (result.promptsTested ?? 0) * (result.liveEngines?.length ?? 0);
+    const recordResult = await recordAiRunWithCapCheck({
+      organizationId: orgId,
+      userId,
+      businessId: idValidation.id,
+      kind: 'audit.run',
+      engineCalls,
+    });
+
+    if (!recordResult.success) {
+      return reply.code(429).send({
+        error: recordResult.error || 'Daily audit limit reached',
+        code: ErrorCodes.RATE_LIMIT,
       });
-    } catch (err) {
-      req.log.warn({ err }, 'Failed to record audit.run usage event');
     }
 
     return {

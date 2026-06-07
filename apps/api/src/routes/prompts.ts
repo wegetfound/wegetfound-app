@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { and, desc, eq } from 'drizzle-orm';
-import { db, businesses, trackedPrompts, isOverDailyCap, recordAiRun } from '@wegetfound/db';
+import { db, businesses, trackedPrompts, isOverDailyCap, recordAiRunWithCapCheck } from '@wegetfound/db';
 import { engineRegistry } from '@wegetfound/ai-adapters';
 import { validateUuid, validateString } from '../validation.js';
 import { AppError, ErrorCodes } from '../error-handler.js';
@@ -113,17 +113,18 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
         }),
       );
 
-      // Record usage after success. Failure here must not break the response.
-      try {
-        await recordAiRun({
-          organizationId: orgId,
-          userId,
-          businessId: bizIdValidation.id,
-          kind: 'prompt.tested',
-          engineCalls: results.length,
-        });
-      } catch (err) {
-        req.log.warn({ err }, 'Failed to record prompt.tested usage event');
+      // Record usage with cap enforcement
+      const recordResult = await recordAiRunWithCapCheck({
+        organizationId: orgId,
+        userId,
+        businessId: bizIdValidation.id,
+        kind: 'prompt.tested',
+        engineCalls: results.length,
+      });
+
+      if (!recordResult.success) {
+        req.log.warn('Failed to record usage event:', recordResult.error);
+        // Don't fail the response; the run already happened
       }
 
       return { prompt: promptValidation.value, results };

@@ -19,6 +19,10 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 /**
  * Email Worker: processes email:send jobs from BullMQ.
  * Sends score change notifications via Resend.
+ *
+ * Retry strategy: 5 attempts with exponential backoff (5s, 25s, 125s, 625s, 3125s).
+ * Fails permanently if organization/user not found.
+ * Retries on transient failures (Resend API rate limits, network timeouts).
  */
 export function startEmailWorker(connection: typeof redis): Worker {
   const worker = new Worker<EmailJobData>(
@@ -27,21 +31,22 @@ export function startEmailWorker(connection: typeof redis): Worker {
       const { organizationId, businessId, businessName, oldScore, newScore, delta } = job.data;
 
       try {
-        console.log(`[email-worker] Processing job ${job.id} for org ${organizationId}`);
+        console.log(
+          `[email-worker] Processing job ${job.id} (attempt ${job.attemptsMade + 1}/5) for org ${organizationId}`,
+        );
 
         if (!process.env.RESEND_API_KEY) {
           console.warn('[email-worker] RESEND_API_KEY not configured, skipping email send');
-          return { success: true, skipped: true };
+          return { success: true, skipped: true, reason: 'API key not configured' };
         }
 
-        // Get org owner email
+        // Get organization (verify it exists)
         const org = await db.query.organizations.findFirst({
           where: eq(organizations.id, organizationId),
         });
 
         if (!org) {
-          console.warn(`[email-worker] Organization ${organizationId} not found`);
-          return { success: false, error: 'Organization not found' };
+          throw new Error(`PERMANENT_FAILURE: Organization ${organizationId} not found`);
         }
 
         // Get org owner (first user in org_members)
@@ -51,8 +56,7 @@ export function startEmailWorker(connection: typeof redis): Worker {
         });
 
         if (!owner?.user?.email) {
-          console.warn(`[email-worker] No user email for org ${organizationId}`);
-          return { success: false, error: 'No user email found' };
+          throw new Error(`PERMANENT_FAILURE: No user email found for org ${organizationId}`);
         }
 
         const userEmail = owner.user.email;
@@ -71,23 +75,46 @@ export function startEmailWorker(connection: typeof redis): Worker {
           html,
         });
 
-        console.log(`[email-worker] Sent to ${userEmail} (${businessName}): ${result.id}`);
+        console.log(`[email-worker] Job ${job.id} sent to ${userEmail} (${businessName}): ${result.id}`);
 
         return {
           success: true,
           emailId: result.id,
           recipientEmail: userEmail,
+          businessId,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(`[email-worker] Job ${job.id} failed:`, message);
-        // Don't throw; let BullMQ handle retry
-        return { success: false, error: message };
+        console.error(
+          `[email-worker] Job ${job.id} failed (attempt ${job.attemptsMade + 1}/5):`,
+          message,
+        );
+
+        // Permanent failures: don't retry
+        if (message.includes('PERMANENT_FAILURE')) {
+          throw new Error(message.replace('PERMANENT_FAILURE: ', ''));
+        }
+
+        // Transient failures: retry
+        throw err;
       }
     },
     {
       connection,
       concurrency: 1, // Process emails serially to avoid rate limits
+      defaultJobOptions: {
+        attempts: 5,
+        backoff: {
+          type: 'exponential',
+          delay: 5000, // 5s, 25s, 125s, 625s, 3125s
+        },
+        removeOnComplete: {
+          age: 3600, // Keep completed jobs for 1 hour
+        },
+        removeOnFail: {
+          age: 86400, // Keep failed jobs for 24 hours for debugging
+        },
+      },
     },
   );
 
