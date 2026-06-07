@@ -32,10 +32,15 @@ export function Login() {
     console.info(`[login] requesting magic link for ${email} (project: ${SUPABASE_PROJECT_REF})`);
 
     try {
+      // Hardcode production domain so magic links work regardless of where the request comes from
+      const redirectUrl = import.meta.env.PROD
+        ? 'https://wegetfound-app.pages.dev'
+        : window.location.origin;
+
       const { error } = await withTimeout(
         supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: window.location.origin },
+          options: { emailRedirectTo: redirectUrl },
         }),
         REQUEST_TIMEOUT_MS,
         'Sign-in request',
