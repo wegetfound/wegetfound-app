@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "@sentry/node": "^7.119.0",
+    "@sentry/profiling-node": "^7.119.0",
     "@wegetfound/ai-adapters": "workspace:*",
     "@wegetfound/audit": "workspace:*",
     "@wegetfound/copy": "workspace:*",

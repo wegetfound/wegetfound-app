@@ -10,11 +10,18 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { stripeCheckoutRoutes } from './routes/stripe-checkout.js';
 import { requireAuth } from './auth.js';
 import { registerErrorHandler } from './error-handler.js';
+import { initSentry, attachSentryToFastify } from './monitoring.js';
 
 export function buildServer(): FastifyInstance {
+  // Initialize Sentry for error tracking (if configured)
+  initSentry(process.env.SENTRY_DSN);
+
   // connectionTimeout raised to 5 min so the audit route (sequential AI engine
   // calls per prompt) has enough time to finish and send the score back to the browser.
   const app = Fastify({ logger: true, connectionTimeout: 300_000, requestIdLogLabel: 'reqId' });
+
+  // Attach Sentry to Fastify for automatic error capture
+  attachSentryToFastify(app);
 
   // Register error handler first (before routes)
   registerErrorHandler(app);
