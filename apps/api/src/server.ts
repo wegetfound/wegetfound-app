@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import { healthRoutes } from './routes/health.js';
 import { auditRoutes } from './routes/audit.js';
 import { businessRoutes } from './routes/businesses.js';
@@ -18,7 +19,7 @@ export function buildServer(): FastifyInstance {
 
   // connectionTimeout raised to 5 min so the audit route (sequential AI engine
   // calls per prompt) has enough time to finish and send the score back to the browser.
-  const app = Fastify({ logger: true, connectionTimeout: 300_000, requestIdLogLabel: 'reqId' });
+  const app = Fastify({ logger: true, connectionTimeout: 30_000, requestIdLogLabel: 'reqId' });
 
   // Attach Sentry to Fastify for automatic error capture
   attachSentryToFastify(app);
@@ -28,9 +29,21 @@ export function buildServer(): FastifyInstance {
 
   // CORS: Allow production domains + all Cloudflare Pages preview subdomains + localhost
   app.register(cors, {
-    origin: true, // Allow all origins for now (we'll tighten this in production)
+    origin: (origin, cb) => {
+      const allowed = [
+        process.env.WEB_URL,
+        process.env.MARKETING_URL,
+      ].filter(Boolean);
+      if (!origin || allowed.includes(origin)) return cb(null, true);
+      if (origin.endsWith('.wegetfound-app.pages.dev')) return cb(null, true);
+      if (process.env.NODE_ENV !== 'production' && (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1'))) return cb(null, true);
+      cb(null, false);
+    },
     credentials: true,
   });
+
+  // Security headers
+  app.register(helmet, { contentSecurityPolicy: false });
 
   // Public routes
   app.register(healthRoutes);

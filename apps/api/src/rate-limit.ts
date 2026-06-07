@@ -6,6 +6,9 @@
 import { redis } from './queue.js';
 import { AppError, ErrorCodes } from './error-handler.js';
 
+// In-memory fallback store when Redis is unavailable
+const memoryStore = new Map<string, { count: number; resetAt: number }>();
+
 export interface RateLimitConfig {
   windowMs: number; // Time window in milliseconds
   maxRequests: number; // Max requests per window
@@ -20,18 +23,43 @@ const defaultKeyGenerator = (ip: string, userId?: string) => {
 };
 
 /**
+ * In-memory fallback rate limit check when Redis is unavailable.
+ * Uses a simple sliding window implementation.
+ */
+function checkMemoryFallback(
+  key: string,
+  maxRequests: number,
+  windowMs: number,
+): { allowed: boolean; remaining: number } {
+  const now = Date.now();
+  const entry = memoryStore.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    // Window expired or no entry yet - reset counter
+    memoryStore.set(key, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, remaining: maxRequests - 1 };
+  }
+
+  entry.count++;
+  if (entry.count > maxRequests) {
+    return { allowed: false, remaining: 0 };
+  }
+  return { allowed: true, remaining: maxRequests - entry.count };
+}
+
+/**
  * Create a rate limit checker for a specific endpoint/user tier.
  */
 export function createRateLimiter(config: RateLimitConfig) {
   const { windowMs, maxRequests, keyGenerator = defaultKeyGenerator, skipSuccessfulRequests = false, skipFailedRequests = false } = config;
 
   return async (ip: string, userId?: string): Promise<{ allowed: boolean; remaining: number; retryAfter?: number }> => {
-    if (!redis) {
-      // If Redis unavailable, allow request (fail open for availability)
-      return { allowed: true, remaining: maxRequests };
-    }
-
     const key = keyGenerator(ip, userId);
+
+    if (!redis) {
+      // If Redis unavailable, use in-memory fallback
+      return checkMemoryFallback(key, maxRequests, windowMs);
+    }
     const now = Date.now();
     const windowStart = now - windowMs;
 
@@ -67,9 +95,9 @@ export function createRateLimiter(config: RateLimitConfig) {
         remaining: Math.max(0, maxRequests - count - 1),
       };
     } catch (err) {
-      // If Redis errors, allow request (fail open)
+      // If Redis errors, use in-memory fallback
       console.error('Rate limit check failed:', err);
-      return { allowed: true, remaining: maxRequests };
+      return checkMemoryFallback(key, maxRequests, windowMs);
     }
   };
 }

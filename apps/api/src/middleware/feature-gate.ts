@@ -10,8 +10,8 @@ import { hasFeature } from '@wegetfound/shared';
 export function featureGate(requiredFeature: string) {
   return async (request: FastifyRequest, reply: FastifyReply, done: HookHandlerDoneFunction) => {
     try {
-      // Assumes auth middleware has already set request.user
-      const orgId = request.user?.active_org_id as string | undefined;
+      // Assumes auth middleware has already set request.auth
+      const orgId = request.auth?.orgId as string | undefined;
       if (!orgId) {
         return reply.code(401).send({ error: 'Unauthorized' });
       }

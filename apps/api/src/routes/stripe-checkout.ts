@@ -43,12 +43,12 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
           return reply.code(400).send({ error: frequencyValidation.error, code: ErrorCodes.VALIDATION_ERROR });
         }
 
-        const userId = request.user.sub as string;
-        const userEmail = request.user.email as string;
+        const userId = request.auth!.userId as string;
+        const userEmail = request.auth!.email as string;
 
         // Get user's active organization
         const org = await db.query.organizations.findFirst({
-          where: eq(organizations.id, request.user.active_org_id),
+          where: eq(organizations.id, request.auth!.orgId),
         });
 
         if (!org) {
@@ -67,7 +67,6 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
           return reply.code(503).send({
             error: 'Stripe not configured yet',
             message: 'Stripe account setup in progress. Please try again in a few days.',
-            env_var: priceIdEnvVar,
           });
         }
 
@@ -116,7 +115,7 @@ export async function stripeCheckoutRoutes(app: FastifyInstance): Promise<void> 
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const org = await db.query.organizations.findFirst({
-          where: eq(organizations.id, request.user.active_org_id),
+          where: eq(organizations.id, request.auth!.orgId),
         });
 
         if (!org) {

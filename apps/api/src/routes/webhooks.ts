@@ -12,6 +12,16 @@ import { AppError, ErrorCodes } from '../error-handler.js';
  * customer.subscription.deleted, invoice.payment_failed
  */
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
+  // Preserve raw body for Stripe webhook signature verification
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+    (req as any).rawBody = body;
+    try {
+      done(null, JSON.parse(body.toString()));
+    } catch (e) {
+      done(e as Error, undefined);
+    }
+  });
+
   app.post<{ Body: string }>(
     '/webhooks/stripe',
     {

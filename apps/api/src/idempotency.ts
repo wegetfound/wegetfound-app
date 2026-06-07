@@ -24,8 +24,7 @@ export async function checkIdempotency<T>(
     return { processed: false };
   } catch (err) {
     console.error('Idempotency check failed:', err);
-    // Fail open: allow request to proceed if Redis unavailable
-    return { processed: false };
+    throw new Error('Idempotency check unavailable — rejecting to prevent duplicate processing');
   }
 }
 

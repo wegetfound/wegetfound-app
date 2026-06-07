@@ -82,8 +82,6 @@ export function normalizeError(
       context: {
         userId: context?.userId,
         orgId: context?.orgId,
-        internalMessage: isInternal ? err.message : undefined,
-        stack: isInternal ? err.stack : undefined,
       },
       internal: isInternal,
     };

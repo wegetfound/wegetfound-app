@@ -9,6 +9,26 @@ import { db, leads } from '@wegetfound/db';
 import { validateUrl, validateOptionalString, validateOptionalEmail } from '../validation.js';
 import { auditFreeLimiter, throwRateLimitError } from '../rate-limit.js';
 
+function isPrivateUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    const hostname = url.hostname;
+    // Block private/internal IPs
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
+    if (hostname.startsWith('10.')) return true;
+    if (hostname.startsWith('192.168.')) return true;
+    if (hostname.startsWith('169.254.')) return true;
+    if (hostname.startsWith('172.')) {
+      const second = parseInt(hostname.split('.')[1], 10);
+      if (second >= 16 && second <= 31) return true;
+    }
+    if (hostname.endsWith('.internal') || hostname.endsWith('.local')) return true;
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 const TEASER_FIX_TYPES = new Set(['crawler_blocked', 'schema_missing', 'missing_faq']);
 
 export async function auditRoutes(app: FastifyInstance): Promise<void> {
@@ -39,6 +59,10 @@ export async function auditRoutes(app: FastifyInstance): Promise<void> {
       const emailValidation = await validateOptionalEmail(email);
       if (!emailValidation.ok) {
         return reply.code(400).send({ error: emailValidation.error });
+      }
+
+      if (isPrivateUrl(urlValidation.url)) {
+        return reply.code(400).send({ error: 'URL points to a private or internal address' });
       }
 
       const result = await auditBusiness({

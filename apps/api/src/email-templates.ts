@@ -3,6 +3,8 @@
  * Simple HTML generators for Resend emails.
  */
 
+import escapeHtml from 'escape-html';
+
 interface ScoreChangeEmailParams {
   businessName: string;
   oldScore: number;
@@ -25,7 +27,7 @@ export function scoreChangeEmailHTML(params: ScoreChangeEmailParams): string {
     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background: white; border-radius: 12px; padding: 32px; border: 1px solid #e6e8eb;">
         <h1 style="font-size: 24px; margin: 0 0 16px; font-weight: 600;">
-          ${improved ? '🎉' : '📊'} ${businessName}'s Findability Score ${improved ? 'improved!' : 'updated'}
+          ${improved ? '🎉' : '📊'} ${escapeHtml(businessName)}'s Findability Score ${improved ? 'improved!' : 'updated'}
         </h1>
 
         <div style="background: #f7f8fa; padding: 20px; border-radius: 8px; margin-bottom: 24px;">
@@ -33,12 +35,12 @@ export function scoreChangeEmailHTML(params: ScoreChangeEmailParams): string {
             Score Update
           </p>
           <p style="margin: 0; font-size: 32px; font-weight: 700;">
-            <span style="color: #2563eb;">${oldScore}</span>
+            <span style="color: #2563eb;">${escapeHtml(String(oldScore))}</span>
             <span style="color: #6b7280; font-size: 24px; margin: 0 8px;">→</span>
-            <span style="color: ${improved ? '#1f9d55' : '#d97706'};">${newScore}</span>
+            <span style="color: ${improved ? '#1f9d55' : '#d97706'};">${escapeHtml(String(newScore))}</span>
           </p>
           <p style="margin: 8px 0 0; font-size: 16px; color: ${improved ? '#1f9d55' : '#d97706'}; font-weight: 600;">
-            ${deltaStr} points
+            ${escapeHtml(deltaStr)} points
           </p>
         </div>
 
@@ -87,7 +89,7 @@ export function welcomeEmailHTML(params?: WelcomeEmailParams): string {
     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
       <div style="background: white; border-radius: 12px; padding: 32px; border: 1px solid #e6e8eb;">
         <h1 style="font-size: 24px; margin: 0 0 16px; font-weight: 600;">
-          Welcome to wegetfound.ai, ${name}!
+          Welcome to wegetfound.ai, ${escapeHtml(name)}!
         </h1>
 
         <p style="margin-bottom: 16px; color: #6b7280;">
