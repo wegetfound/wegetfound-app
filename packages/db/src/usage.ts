@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from './client';
-import { events } from './schema/events';
+import { events, organizations } from './schema';
+import { getCapsForPlan } from '@wegetfound/shared';
 
 // Blended per-engine-call cost estimate (OpenAI gpt-4o-mini + Perplexity sonar).
 // Used for display only — actual spend may vary. Update as pricing changes.
@@ -31,7 +32,7 @@ export async function recordAiRun(input: {
 
 /**
  * Returns today + month run counts, summed engine calls, estimated cost,
- * the configured daily cap, and how many runs remain today.
+ * the configured daily cap (from plan), and how many runs remain today.
  */
 export async function getOrgUsage(organizationId: string): Promise<{
   today: { runs: number; engineCalls: number };
@@ -41,7 +42,15 @@ export async function getOrgUsage(organizationId: string): Promise<{
   capPerDay: number;
   remainingToday: number;
 }> {
-  const capPerDay = Number(process.env.MAX_AI_RUNS_PER_DAY ?? 25);
+  // Get organization plan to determine cap
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, organizationId),
+  });
+
+  if (!org) throw new Error(`Organization ${organizationId} not found`);
+
+  const caps = getCapsForPlan(org.plan as any);
+  const capPerDay = caps.aiRunsPerDay === Infinity ? 999_999 : caps.aiRunsPerDay;
 
   const now = new Date();
   // Start of today UTC (midnight)
@@ -89,11 +98,20 @@ export async function getOrgUsage(organizationId: string): Promise<{
 /**
  * Cheap cap check: only counts today's run rows (no payload parsing needed).
  * Call this BEFORE the expensive AI work to gate the request.
+ * Uses per-plan caps from getCapsForPlan().
  */
 export async function isOverDailyCap(
   organizationId: string,
 ): Promise<{ over: boolean; capPerDay: number; runsToday: number }> {
-  const capPerDay = Number(process.env.MAX_AI_RUNS_PER_DAY ?? 25);
+  // Get organization plan to determine cap
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, organizationId),
+  });
+
+  if (!org) throw new Error(`Organization ${organizationId} not found`);
+
+  const caps = getCapsForPlan(org.plan as any);
+  const capPerDay = caps.aiRunsPerDay === Infinity ? 999_999 : caps.aiRunsPerDay;
 
   const now = new Date();
   const startOfDay = new Date(

@@ -191,3 +191,26 @@ h1, h2, h3 { margin: 0 0 0.4rem; }
 .signal-label { color: var(--muted); }
 .signal-pct { font-weight: 600; }
 .audit-email-block { margin-top: 1.25rem; padding: 1rem; background: #f7f8fa; }
+
+/* Upgrade modal */
+.modal-backdrop {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5); display: grid; place-items: center;
+  padding: 1rem; z-index: 1000;
+}
+.modal {
+  width: 420px; max-width: 100%;
+}
+.plan-options {
+  display: flex; flex-direction: column; gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+.plan-btn {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 0.85rem; text-align: left; border: 1px solid var(--border);
+}
+.plan-btn:hover:not(:disabled) {
+  background: #f1f3f5; border-color: var(--accent);
+}
+.plan-btn strong { display: block; margin-bottom: 0.2rem; }
+.plan-btn span { font-size: 0.8rem; }

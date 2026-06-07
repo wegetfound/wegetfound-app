@@ -6,6 +6,8 @@ import { businessRoutes } from './routes/businesses.js';
 import { fixRoutes } from './routes/fixes.js';
 import { meRoutes } from './routes/me.js';
 import { promptRoutes } from './routes/prompts.js';
+import { webhookRoutes } from './routes/webhooks.js';
+import { stripeCheckoutRoutes } from './routes/stripe-checkout.js';
 import { requireAuth } from './auth.js';
 
 export function buildServer(): FastifyInstance {
@@ -20,6 +22,7 @@ export function buildServer(): FastifyInstance {
   // Public routes
   app.register(healthRoutes);
   app.register(auditRoutes);
+  app.register(webhookRoutes);
 
   // Authenticated routes — requireAuth runs as an onRequest hook for everything
   // in this scope, so every handler can rely on req.auth being set.
@@ -29,6 +32,7 @@ export function buildServer(): FastifyInstance {
     await fixRoutes(authed);
     await meRoutes(authed);
     await promptRoutes(authed);
+    await stripeCheckoutRoutes(authed);
   });
 
   return app;

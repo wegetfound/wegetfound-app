@@ -127,6 +127,8 @@ export function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [auditing, setAuditing] = useState(false);
   const [me, setMe] = useState<MeResponse | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   useEffect(() => {
     api
@@ -180,9 +182,36 @@ export function Dashboard() {
       setFixes(f);
       setHistory(h);
     } catch (e) {
-      setError(String(e));
+      const errStr = String(e);
+      // Check for 429 (daily cap exceeded)
+      if (errStr.includes('429') || errStr.includes('Daily audit limit')) {
+        setShowUpgradeModal(true);
+        setError(null);
+      } else {
+        setError(errStr);
+      }
     } finally {
       setAuditing(false);
+    }
+  };
+
+  const handleUpgradeClick = async (plan: 'starter' | 'growth' | 'agency') => {
+    setUpgrading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/stripe/checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({ plan }),
+      });
+      if (!res.ok) throw new Error('Failed to create checkout session');
+      const data = (await res.json()) as { url: string };
+      window.location.href = data.url;
+    } catch (err) {
+      setError(String(err));
+      setUpgrading(false);
     }
   };
 
@@ -315,6 +344,44 @@ export function Dashboard() {
               </>
             )}
           </main>
+        </div>
+      )}
+
+      {showUpgradeModal && (
+        <div className="modal-backdrop">
+          <div className="card modal">
+            <h2>Daily limit reached</h2>
+            <p className="muted">Upgrade to keep tracking your AI visibility.</p>
+            <div className="plan-options">
+              <button
+                className="btn plan-btn"
+                onClick={() => handleUpgradeClick('starter')}
+                disabled={upgrading}
+              >
+                <strong>Starter</strong>
+                <span className="muted">$19/mo • 10 audits/day</span>
+              </button>
+              <button
+                className="btn plan-btn"
+                onClick={() => handleUpgradeClick('growth')}
+                disabled={upgrading}
+              >
+                <strong>Growth</strong>
+                <span className="muted">$49/mo • 30 audits/day</span>
+              </button>
+              <button
+                className="btn plan-btn"
+                onClick={() => handleUpgradeClick('agency')}
+                disabled={upgrading}
+              >
+                <strong>Agency</strong>
+                <span className="muted">$149/mo • Unlimited</span>
+              </button>
+            </div>
+            <button className="btn ghost" onClick={() => setShowUpgradeModal(false)} disabled={upgrading}>
+              {upgrading ? 'Redirecting...' : 'Cancel'}
+            </button>
+          </div>
         </div>
       )}
     </div>
