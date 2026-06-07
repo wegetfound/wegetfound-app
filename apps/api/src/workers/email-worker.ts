@@ -17,7 +17,7 @@ interface EmailJobData {
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
- * Email Worker: processes email:send jobs from BullMQ.
+ * Email Worker: processes email-send jobs from BullMQ.
  * Sends score change notifications via Resend.
  *
  * Retry strategy: 5 attempts with exponential backoff (5s, 25s, 125s, 625s, 3125s).
@@ -26,7 +26,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
  */
 export function startEmailWorker(connection: typeof redis): Worker {
   const worker = new Worker<EmailJobData>(
-    'email:send',
+    'email-send',
     async (job) => {
       const { organizationId, businessId, businessName, oldScore, newScore, delta } = job.data;
 
@@ -126,6 +126,6 @@ export function startEmailWorker(connection: typeof redis): Worker {
     console.log(`[email-worker] Job ${job.id} completed`);
   });
 
-  console.log('[email-worker] Started, listening for email:send jobs');
+  console.log('[email-worker] Started, listening for email-send jobs');
   return worker;
 }

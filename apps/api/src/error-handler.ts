@@ -5,18 +5,6 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
-export class AppError extends Error {
-  constructor(
-    public code: string,
-    message: string,
-    public statusCode: number = 500,
-    public context?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = 'AppError';
-  }
-}
-
 // Common error codes
 export const ErrorCodes = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
@@ -44,6 +32,18 @@ const statusCodeMap: Record<string, number> = {
   [ErrorCodes.DATABASE_ERROR]: 500,
   [ErrorCodes.INTERNAL_ERROR]: 500,
 };
+
+export class AppError extends Error {
+  constructor(
+    public code: string,
+    message: string,
+    public statusCode: number = statusCodeMap[code] ?? 500,
+    public context?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'AppError';
+  }
+}
 
 /**
  * Normalize errors into structured format.

@@ -3,7 +3,7 @@ import { scoreQueue } from '../queue';
 import { getCapsForPlan } from '@wegetfound/shared';
 
 /**
- * Scheduler: enqueues score:calculate jobs for businesses based on their organization's plan.
+ * Scheduler: enqueues score-calculate jobs for businesses based on their organization's plan.
  * - Free plan: weekly (every Monday at midnight UTC)
  * - Growth/Agency: daily (every day at midnight UTC)
  *
@@ -56,7 +56,7 @@ export async function startScheduler(): Promise<void> {
           if (frequency === 'weekly') {
             // Every Monday at midnight UTC
             await scoreQueue.add(
-              'score:calculate',
+              'score-calculate',
               { businessId: biz.id },
               {
                 jobId,
@@ -71,7 +71,7 @@ export async function startScheduler(): Promise<void> {
           } else {
             // Every day at midnight UTC
             await scoreQueue.add(
-              'score:calculate',
+              'score-calculate',
               { businessId: biz.id },
               {
                 jobId,
@@ -104,7 +104,7 @@ export async function startScheduler(): Promise<void> {
  */
 export async function enqueueScoreJob(businessId: string): Promise<string> {
   const job = await scoreQueue.add(
-    'score:calculate',
+    'score-calculate',
     { businessId },
     {
       jobId: `manual:${businessId}:${Date.now()}`,

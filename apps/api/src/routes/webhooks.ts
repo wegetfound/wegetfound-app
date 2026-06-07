@@ -207,5 +207,5 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   });
 
   console.log(`Payment failed for org ${org.id} (invoice ${invoice.id})`);
-  // TODO: Queue email:send job for payment failure notification
+  // TODO: Queue email-send job for payment failure notification
 }

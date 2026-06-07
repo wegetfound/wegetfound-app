@@ -1,4 +1,4 @@
-import { Queue, Worker, QueueScheduler } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 
 // Initialize Redis connection
@@ -10,7 +10,7 @@ export const redis = new Redis(redisUrl, {
 });
 
 // Create job queues
-export const scoreQueue = new Queue('score:calculate', {
+export const scoreQueue = new Queue('score-calculate', {
   connection: redis,
   defaultJobOptions: {
     attempts: 3,
@@ -21,7 +21,7 @@ export const scoreQueue = new Queue('score:calculate', {
   },
 });
 
-export const emailQueue = new Queue('email:send', {
+export const emailQueue = new Queue('email-send', {
   connection: redis,
   defaultJobOptions: {
     attempts: 2,
@@ -32,11 +32,6 @@ export const emailQueue = new Queue('email:send', {
   },
 });
 
-// Create scheduler to manage recurring jobs
-export const scoreScheduler = new QueueScheduler('score:calculate', {
-  connection: redis,
-});
-
 /**
  * Clean up queue resources on process exit.
  */
@@ -44,7 +39,6 @@ export async function closeQueues(): Promise<void> {
   await Promise.all([
     scoreQueue.close(),
     emailQueue.close(),
-    scoreScheduler.close(),
     redis.quit(),
   ]);
 }

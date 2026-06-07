@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq';
 import { redis, emailQueue } from '../queue';
 import { db, businesses, findabilityScores } from '@wegetfound/db';
-import { scoreBusiness } from '@wegetfound/db/src/score-business';
+import { scoreBusiness } from '@wegetfound/db/score-business';
 import { eq, desc } from 'drizzle-orm';
 
 interface ScoreJobData {
@@ -9,7 +9,7 @@ interface ScoreJobData {
 }
 
 /**
- * Score Worker: processes score:calculate jobs from BullMQ.
+ * Score Worker: processes score-calculate jobs from BullMQ.
  * Calls scoreBusiness(), checks if score changed materially (>5 points),
  * and enqueues an email job if so.
  *
@@ -18,7 +18,7 @@ interface ScoreJobData {
  */
 export function startScoreWorker(connection: typeof redis): Worker {
   const worker = new Worker<ScoreJobData>(
-    'score:calculate',
+    'score-calculate',
     async (job) => {
       const { businessId } = job.data;
 
@@ -130,6 +130,6 @@ export function startScoreWorker(connection: typeof redis): Worker {
     console.log(`[score-worker] Job ${job.id} completed`);
   });
 
-  console.log('[score-worker] Started, listening for score:calculate jobs');
+  console.log('[score-worker] Started, listening for score-calculate jobs');
   return worker;
 }
