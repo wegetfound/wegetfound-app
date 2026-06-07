@@ -1,4 +1,5 @@
 import { db, organizations, businesses } from '@wegetfound/db';
+import { eq } from 'drizzle-orm';
 import { scoreQueue } from '../queue';
 import { getCapsForPlan } from '@wegetfound/shared';
 
@@ -21,7 +22,7 @@ export async function startScheduler(): Promise<void> {
 
       // Get all businesses for this org
       const bizList = await db.query.businesses.findMany({
-        where: (t) => ({ organizationId: org.id }),
+        where: eq(businesses.organizationId, org.id),
       });
 
       if (bizList.length === 0) continue;

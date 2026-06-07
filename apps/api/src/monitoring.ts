@@ -21,13 +21,6 @@ export function initSentry(dsn: string | undefined) {
     profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
     integrations: [
       nodeProfilingIntegration(),
-      new Sentry.Integrations.Http({ tracing: true }),
-    ],
-    denyUrls: [
-      // Health checks
-      /\/health/,
-      // Webhooks (handled separately)
-      /\/webhooks\//,
     ],
   });
 
@@ -38,26 +31,8 @@ export function initSentry(dsn: string | undefined) {
  * Attach Sentry to Fastify instance.
  */
 export function attachSentryToFastify(app: FastifyInstance) {
-  app.addHook('onRequest', async (request, reply) => {
-    // Attach transaction
-    const transaction = Sentry.startTransaction({
-      op: 'http.request',
-      name: `${request.method} ${request.url}`,
-    });
-
-    request.sentryTransaction = transaction;
-  });
-
-  app.addHook('onResponse', async (request, reply) => {
-    const transaction = (request as any).sentryTransaction;
-    if (transaction) {
-      transaction.setStatus(Sentry.getHttpStatusCodeFromStatusCode(reply.statusCode));
-      transaction.end();
-    }
-  });
-
-  // Catch unhandled errors
-  app.setErrorHandler((error, request, reply) => {
+  // Catch unhandled errors and report to Sentry
+  app.addHook('onError', async (request, reply, error) => {
     const isSensitiveError = error?.code?.includes('DB') || error?.message?.includes('password');
 
     if (!isSensitiveError && process.env.NODE_ENV !== 'development') {
@@ -66,19 +41,9 @@ export function attachSentryToFastify(app: FastifyInstance) {
         tags: {
           method: request.method,
           url: request.url,
-          statusCode: reply.statusCode,
-        },
-        contexts: {
-          auth: {
-            userId: (request as any).auth?.userId,
-            orgId: (request as any).auth?.orgId,
-          },
         },
       });
     }
-
-    // Let Fastify error handler take it
-    throw error;
   });
 }
 
