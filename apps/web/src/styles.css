@@ -53,6 +53,7 @@ h1, h2, h3 { margin: 0 0 0.4rem; }
 .dev-login summary { cursor: pointer; }
 .status { margin-top: 0.9rem; font-size: 0.88rem; color: var(--muted); }
 .status.error { color: #dc2626; }
+.status.success { color: #1f9d55; }
 
 .topbar {
   display: flex; align-items: center; gap: 0.75rem;
